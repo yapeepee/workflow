@@ -2,14 +2,12 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-> Anthropic's published way of building with Claude Code, scaled down to one developer on a Max 5x plan.
+> A Claude Code workflow for a one-person team, sized for a Max 5x plan.
 > **The model does the work, tools decide whether it is right, and you decide what to build and whether to accept it.**
 
 [![selftest](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml/badge.svg)](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml)
 
 A Claude Code setup — 11 skills, 3 subagents, 3 hooks, a status line and a zero-dependency Node engine — that replaces "Claude says it's done" with "the checks say it's done". It installs privately: inside a repo your whole team pulls, nothing it adds shows up in `git status`, gets committed or gets pushed.
-
-Independent project, not affiliated with Anthropic; it adapts practices Anthropic and others have described in public ([sources](docs/ARCHITECTURE.md)).
 
 ## What it fixes
 
@@ -112,7 +110,7 @@ solo-ai-team/
 5. **Deleting is work.** `/sweep` every week, `/refresh` after every new model.
 6. **Leave no trace in a team repo.** The kit's own files never reach git, git writes happen only when you ask, and lines nobody changed are never reformatted.
 
-The ten principles behind these, each traced from what Anthropic does to why it works to how the kit does it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The ten principles behind these, each traced from the practice it comes from to why it works to how the kit does it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Verified / not verified
 
@@ -152,7 +150,9 @@ Solo AI Team succeeds [`claude-quality-harness-v3`](https://github.com/yapeepee/
 | document | read it for |
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | installing; existing and new projects; every command; what runs automatically; configuration; troubleshooting; uninstalling |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | why it is built this way: ten principles taken from Anthropic, memory layers, verification, usage budget, private install, security, lineage, the field test |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | why it is built this way: ten principles and their sources, memory layers, verification, usage budget, private install, security, lineage, the field test |
+
+The principles draw on practices that the Claude Code team and other practitioners have published; ARCHITECTURE cites every source. This is an independent project, not affiliated with Anthropic.
 
 Every document exists in English and Traditional Chinese (`*.zh-TW.md`), switchable at the top. Machine-facing files (skill bodies, agents, templates, engine output) are English, which models parse most reliably. The one-line descriptions of the user-invoked skills are Traditional Chinese because that is what the author reads in the `/` menu, and `kit/templates/CLAUDE.user.md` holds the author's personal defaults (replies in Traditional Chinese, a "教我" learning mode).
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | **繁體中文**
 
-> 把 Anthropic 公開描述的 Claude Code 開發做法，縮小成一個人加一個 Max 5x 方案用得起的規模。
+> 一人團隊的 Claude Code 工作流，一個 Max 5x 方案就用得起。
 > **模型負責做，工具負責判定做對了沒，你負責決定做什麼、以及要不要收下成果。**
 
 **TL;DR (EN).** A Claude Code setup (11 skills, 3 subagents, 3 hooks, a status line, a zero-dependency Node engine) that replaces "Claude says it's done" with "the checks say it's done", and installs privately so it works inside a repo your whole team pulls without showing up in git. Its selftest (69 checks) runs in CI on Ubuntu and Windows; the README says what is verified and what is not.
@@ -10,8 +10,6 @@
 [![selftest](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml/badge.svg)](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml)
 
 一套 Claude Code 設定：11 個 skill、3 個子代理、3 個 hook、一條狀態列，加上零依賴的 Node engine。它把「Claude 說做完了」換成「檢查說做完了」。安裝是私有的：在整個團隊都在 pull 的 repo 裡，它加進來的東西不會出現在 `git status`，不會被 commit，也不會被 push。
-
-獨立專案，與 Anthropic 無關；內容改編自 Anthropic 與其他人公開描述的做法（[來源](docs/ARCHITECTURE.zh-TW.md)）。
 
 ## 它解決什麼
 
@@ -114,7 +112,7 @@ solo-ai-team/
 5. **刪除是正式工作。** 每週 `/sweep`，每次新模型推出後 `/refresh`。
 6. **在團隊 repo 裡不留痕跡。** 套件自己的檔案永遠不進 git，只有你要求時才寫 git，沒人改過的行永遠不會被重排。
 
-這些重點背後的十條原則（Anthropic 怎麼做 → 為什麼有效 → 套件怎麼做）：[docs/ARCHITECTURE.zh-TW.md](docs/ARCHITECTURE.zh-TW.md)。
+這些重點背後的十條原則（做法出自哪裡 → 為什麼有效 → 套件怎麼做）：[docs/ARCHITECTURE.zh-TW.md](docs/ARCHITECTURE.zh-TW.md)。
 
 ## 已驗證 / 未驗證
 
@@ -154,7 +152,9 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 | 文件 | 看什麼 |
 |---|---|
 | [docs/USAGE.zh-TW.md](docs/USAGE.zh-TW.md) | 安裝；既有專案與全新專案；所有指令；自動發生的事；設定；排錯；移除 |
-| [docs/ARCHITECTURE.zh-TW.md](docs/ARCHITECTURE.zh-TW.md) | 為什麼這樣設計：從 Anthropic 萃取的十條原則、記憶分層、驗證、額度預算、私有安裝、安全、演化來源、實測 |
+| [docs/ARCHITECTURE.zh-TW.md](docs/ARCHITECTURE.zh-TW.md) | 為什麼這樣設計：十條原則與出處、記憶分層、驗證、額度預算、私有安裝、安全、演化來源、實測 |
+
+這些原則參考了 Claude Code 團隊與其他實務者公開的做法，ARCHITECTURE 列出了每一個出處。這是獨立專案，與 Anthropic 無關。
 
 每份文件都有英文版和繁體中文版（`*.zh-TW.md`），頂端可以互切。給機器讀的檔案（skill 內文、agents、templates、engine 的輸出）用英文，模型解析最穩定。使用者呼叫的 skill，一行描述用繁體中文，因為那是作者在 `/` 選單裡看到的文字；`kit/templates/CLAUDE.user.md` 是作者的個人偏好（用繁體中文回覆、「教我」學習模式）。
 
