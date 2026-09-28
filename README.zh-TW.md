@@ -130,7 +130,8 @@ solo-ai-team/
 - **模型那一端。** Claude 照著 skill 做時，寫出的任務卡、計畫和測試好不好。fixture 量不到判斷力，只有實際使用量得到。
 - **真實的 Claude Code session。** selftest 重播 `kit/settings.json` 裡 hook 的 `command` 和 `args`，這就是 Claude Code 執行它們的方式，但終究是重播。
 - **省下多少額度。** 目前沒有數字，請用 `/usage` 和狀態列自己量。
-- **macOS。** 從沒跑過。它的暫存資料夾在一個 symlink 後面（`/var` → `/private/var`），路徑處理還沒遇過這種情況。
+- **寫法和 git 不同的路徑。** hook 要把 Claude Code 傳來的檔案路徑和 git 回報的 repo 根目錄比對，才知道檔案屬於哪個 repo。如果專案是經由 8.3 短檔名、symlink 或 junction 開啟的，兩邊的寫法可能不同，hook 就會靜靜略過那個檔案。selftest 會把自己的路徑轉成 canonical 形式，engine 不會。
+- **macOS。** 從沒跑過。
 
 ## 失敗紀錄 → 機制
 
@@ -143,6 +144,7 @@ solo-ai-team/
 - **git 在 pull 時沒問就蓋掉了私人檔案**（在 git 2.43 實測）。git 把被排除的檔案視為可以覆蓋，隊友 commit 同名檔案就會蓋掉你的 → SessionStart 把 `CLAUDE.local.md` 和 `settings.local.json` 備份到 `.solo/backup/`，一旦它們變成被追蹤的檔案就發出警告。
 - **selftest 在真正用過 Claude Code 的電腦上崩潰**（2026-09-28，發佈前審查發現）。Claude Code 會把 `**/.claude/settings.local.json` 加進全域 git excludes，於是 fixture 的 `git add -A` 什麼都沒加：60/61，最後 7 項沒跑。在這種電腦上，「git status 為空」也不必靠安裝程式自己的 exclude 就會通過 → selftest 改讓 git 使用自己的空設定，並由 CI 在 Ubuntu 和 Windows 上執行。
 - **在 Windows 上 clone 會弄壞規則模板**（2026-09-28，發佈前審查發現）。Git for Windows 預設 `core.autocrlf=true`，而安裝程式用以 `\n` 錨定的 regex 剝除模板的 front matter，CRLF checkout 就把 `paths: "{{ROOT}}…"` 帶進每個 session → `.gitattributes` 鎖定 LF，CI 遇到任何 CRLF checkout 就失敗。
+- **CI 第一次在 Windows 上跑就失敗，31/52**（2026-09-28，第一次 CI）。runner 的暫存資料夾是 `C:\Users\RUNNER~1\…` 這種 8.3 短檔名，git 回報的卻是長路徑，所以沒有任何被編輯的檔案對應得到測試 repo；作者的使用者名稱夠短，本機從來不會產生短檔名 → selftest 把暫存資料夾轉成 canonical 路徑（`fs.realpathSync.native`），把 `TEMP` 指向短檔名就能在本機重現這次失敗。engine 本身仍然照原樣比對路徑（見「沒有驗證的部分」）。
 
 ## 演化來源
 

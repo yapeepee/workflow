@@ -15,7 +15,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const KIT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'kit');
-const base = fs.mkdtempSync(path.join(os.tmpdir(), 'solo selftest '));
+// git reports canonical paths; os.tmpdir() may hold an 8.3 short name (C:\Users\RUNNER~1\… on CI's Windows runner)
+// or a symlink (/var → /private/var on macOS), and then no edited file maps into the repo.
+const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'solo selftest ')));
 // Claude Code adds **/.claude/settings.local.json to the global git excludes. Inherited, that rule made a fixture's
 // `git add -A` stage nothing, and let "git status is empty" pass without the installer's own exclude doing the work.
 const gitConfig = path.join(base, 'git config');

@@ -128,7 +128,8 @@ The ten principles behind these, each traced from what Anthropic does to why it 
 - **The model side.** Whether Claude writes good task cards, plans and tests when it follows the skills. Fixtures do not measure judgment; only use does.
 - **A live Claude Code session.** The selftest replays the exact hook `command` and `args` from `kit/settings.json`, which is how Claude Code runs them, but it is a replay.
 - **Usage savings.** No numbers yet. Measure with `/usage` and the status line.
-- **macOS.** Never run. Its temp directory sits behind a symlink (`/var` → `/private/var`) that the path handling has not been tried against.
+- **Paths spelled differently from git's.** The hooks map an edited file into the repo by comparing the path Claude Code passes with the root git reports. If a project is reached through an 8.3 short name, a symlink or a junction, the two can differ, and the hooks then skip that file without a word. The selftest canonicalizes its own paths; the engine does not.
+- **macOS.** Never run.
 
 ## Failure log → mechanism
 
@@ -141,6 +142,7 @@ Most mechanisms here exist because something concrete went wrong.
 - **git replaced a private file on pull without asking** (tested with git 2.43). git treats excluded files as expendable, so a teammate committing a file with the same name overwrites yours → SessionStart backs up `CLAUDE.local.md` and `settings.local.json` to `.solo/backup/` and warns as soon as they become tracked.
 - **The selftest crashed on a real Claude Code machine** (2026-09-28, found in the pre-release review). Claude Code adds `**/.claude/settings.local.json` to the global git excludes, so a fixture's `git add -A` staged nothing: 60/61, with the last 7 checks never run. On such machines "git status is empty" also passed without the installer's own exclude doing anything → the selftest now runs git with an empty config of its own, and CI runs it on Ubuntu and Windows.
 - **A Windows clone would have broken the rules templates** (2026-09-28, found in the pre-release review). Git for Windows defaults to `core.autocrlf=true`, and the installer strips template front matter with a `\n`-anchored regex, so a CRLF checkout leaked `paths: "{{ROOT}}…"` into every session → `.gitattributes` pins LF, and CI fails on any CRLF checkout.
+- **CI's first Windows run failed, 31/52** (2026-09-28, the first CI run). The runner's temp folder is `C:\Users\RUNNER~1\…`, an 8.3 short name, while git reports the long path, so no edited file mapped into the test repo. The author's user name is short enough never to produce one → the selftest canonicalizes its temp folder (`fs.realpathSync.native`), and pointing `TEMP` at a short name reproduces the failure locally. The engine itself still compares paths as given (see Not verified).
 
 ## Lineage
 

@@ -321,6 +321,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - **baseline 比對是啟發式的。** 它以錯誤訊息的文字為 key，所以同一個檔案裡訊息完全相同的新錯誤，會被當成舊錯誤。
 - **Bash 權限規則是文字比對，不是安全邊界**（見 §8）。
 - **換行必須是 LF。** 安裝程式用以 `\n` 錨定的 regex 解析模板。git clone 由 `.gitattributes` 保證 LF；用其他方式複製、被轉成 CRLF 的檔案，會讓規則模板的 front matter 剝不乾淨。
+- **路徑的寫法要和 git 一致。** hook 用 git 回報的 repo 根目錄去對應 Claude Code 傳來的檔案路徑。專案如果是經由 8.3 短檔名、symlink 或 junction 開啟的，兩邊寫法可能不同，hook 就會靜靜略過那些檔案。selftest 會把自己的暫存路徑轉成 canonical 形式（CI 的 Windows runner 暫存路徑是 `C:\Users\RUNNER~1\…` 這種寫法），engine 本身沒有這麼做。
 - **驗證範圍。** selftest 67 項：建置時在 Linux 通過，2026-09-28 在 Windows 11 原生通過，之後每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 執行。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
 - **能省多少額度，目前沒有量化數據。** 請用 `/usage` 的 attribution 和 statusline 自己量。
 - **Claude Code 變化很快。** 套件用到的功能多在 v2.1.2xx 之後才有，安裝前先 `claude update`。
