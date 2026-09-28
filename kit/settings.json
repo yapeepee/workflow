@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opusplan",
+  "env": {
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(node .solo/engine/check.mjs *)",
+      "Bash(node .solo/engine/ledger.mjs *)",
+      "Bash(node .solo/engine/snap.mjs *)",
+      "Bash(node .solo/engine/token-guard.mjs *)",
+      "Bash(node .solo/engine/test-guard.mjs)",
+      "Bash(node .solo/engine/test-guard.mjs *)",
+      "Bash(git add *)",
+      "Bash(git switch *)",
+      "Bash(git worktree list *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(git rebase *)",
+      "Bash(git branch -D *)",
+      "Bash(gh pr merge *)",
+      "Bash(npm publish *)",
+      "Bash(dotnet nuget push *)",
+      "Bash(dotnet ef database *)",
+      "Bash(*DROP TABLE*)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*TRUNCATE TABLE*)",
+      "Bash(aws * delete*)",
+      "Bash(aws * terminate*)",
+      "Bash(aws s3 rm *)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm i)",
+      "Bash(npm i *)",
+      "Bash(npm uninstall *)",
+      "Bash(pnpm add *)",
+      "Bash(yarn add *)",
+      "Bash(dotnet add *)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.production)",
+      "Read(**/*.pem)",
+      "Read(**/*.pfx)",
+      "Read(**/*.p12)",
+      "Read(**/secrets/**)",
+      "Bash(git push --force)",
+      "Bash(git push --force *)",
+      "Bash(git push * --force)",
+      "Bash(git push * --force *)",
+      "Bash(git push -f)",
+      "Bash(git push -f *)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "-e",
+              "const p=require('path'),f=require('fs');let d=process.env.CLAUDE_PROJECT_DIR||process.cwd();for(;;){const s=p.join(d,'.solo','engine',process.argv[1]);if(f.existsSync(s)){import(require('url').pathToFileURL(s).href);break}const u=p.dirname(d);if(u===d)break;d=u}",
+              "hook-session-start.mjs"
+            ],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "-e",
+              "const p=require('path'),f=require('fs');let d=process.env.CLAUDE_PROJECT_DIR||process.cwd();for(;;){const s=p.join(d,'.solo','engine',process.argv[1]);if(f.existsSync(s)){import(require('url').pathToFileURL(s).href);break}const u=p.dirname(d);if(u===d)break;d=u}",
+              "hook-after-edit.mjs"
+            ],
+            "timeout": 40
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "-e",
+              "const p=require('path'),f=require('fs');let d=process.env.CLAUDE_PROJECT_DIR||process.cwd();for(;;){const s=p.join(d,'.solo','engine',process.argv[1]);if(f.existsSync(s)){import(require('url').pathToFileURL(s).href);break}const u=p.dirname(d);if(u===d)break;d=u}",
+              "hook-stop.mjs"
+            ],
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}
