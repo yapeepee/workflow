@@ -35,7 +35,16 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const KIT = path.join(HERE, 'kit');
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith('--')));
-const TARGET = path.resolve(argv.find((a) => !a.startsWith('--')) || process.cwd());
+// git reports the repo root in its real spelling (8.3 short names expanded, junctions and symlinks resolved). A target
+// spelled any other way would put the exclude rules under the wrong prefix and leave the kit visible in git status.
+const realPath = (p) => {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return p; // missing target: reported below
+  }
+};
+const TARGET = realPath(path.resolve(argv.find((a) => !a.startsWith('--')) || process.cwd()));
 const DRY = flags.has('--dry-run');
 const FORCE = flags.has('--force');
 const USER_ONLY = flags.has('--user-only');
@@ -408,7 +417,7 @@ const top = git(['rev-parse', '--show-toplevel']);
 const commonDir = git(['rev-parse', '--git-common-dir']);
 const excludeFile = commonDir ? path.resolve(TARGET, commonDir, 'info', 'exclude') : null;
 // repo-relative prefix of TARGET, so exclude patterns still match when installing into a subfolder
-const prefix = top ? posix(path.relative(path.resolve(top), TARGET)) : '';
+const prefix = top ? posix(path.relative(realPath(top), TARGET)) : '';
 const atTop = top !== null && prefix === '';
 if (!top) notes.push('Not a git repository: nothing to hide the kit from. Hooks still work; /ship and worktrees need git.');
 else if (!atTop) notes.push(`The git root is ${posix(top)}. Start claude in ${posix(TARGET)} (the folder you installed into), or reinstall at the git root.`);

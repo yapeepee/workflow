@@ -17,7 +17,7 @@
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # 應該顯示 67/67 passed
+node selftest.mjs              # 應該顯示 69/69 passed
 node install.mjs --user-only   # skills、子代理、狀態列、個人 CLAUDE.md → ~/.claude
 ```
 

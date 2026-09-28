@@ -17,7 +17,7 @@ How to install it, use it day to day, configure it and troubleshoot it. The desi
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # should print 67/67 passed
+node selftest.mjs              # should print 69/69 passed
 node install.mjs --user-only   # skills, subagents, status line, personal CLAUDE.md → ~/.claude
 ```
 

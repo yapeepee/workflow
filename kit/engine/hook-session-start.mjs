@@ -5,7 +5,7 @@
 // file with the same name, `git pull` silently replaces your copy. Keep a backup and warn when it happens.
 import path from 'node:path';
 import fs from 'node:fs';
-import { activeTask, git, posix, readHead, readStdinJson, repoRoot } from './lib.mjs';
+import { activeTask, git, posix, readHead, readStdinJson, repoRoot, toRel } from './lib.mjs';
 
 const input = readStdinJson();
 const root = repoRoot(input.cwd || process.cwd());
@@ -34,11 +34,10 @@ for (const rel of PRIVATE) {
 
 // Opened in a subfolder (e.g. VS Code on frontend/): the hooks still find the kit, but `node .solo/engine/...`
 // commands only resolve from the repo root.
-const started = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : null;
-const fromRoot = started ? path.relative(root, started) : '';
-if (fromRoot && !fromRoot.startsWith('..') && !path.isAbsolute(fromRoot) && fs.existsSync(path.join(root, '.solo', 'engine'))) {
+const fromRoot = process.env.CLAUDE_PROJECT_DIR ? toRel(root, path.resolve(process.env.CLAUDE_PROJECT_DIR)) : null;
+if (fromRoot && fs.existsSync(path.join(root, '.solo', 'engine'))) {
   warnings.push(
-    `[solo] This session started in ${posix(fromRoot)}/, but the kit lives at the repo root ${posix(root)}. Run kit commands from there, e.g. cd "${posix(root)}" && node .solo/engine/check.mjs --stage full. Opening VS Code at the repo root avoids this.`,
+    `[solo] This session started in ${fromRoot}/, but the kit lives at the repo root ${posix(root)}. Run kit commands from there, e.g. cd "${posix(root)}" && node .solo/engine/check.mjs --stage full. Opening VS Code at the repo root avoids this.`,
   );
 }
 

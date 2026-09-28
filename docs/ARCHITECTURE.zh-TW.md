@@ -213,7 +213,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 
 `claude -w <name>` 會在 `.claude/worktrees/<name>/` 建立 worktree，分支名稱是 `worktree-<name>`。worktree 是全新的 checkout，看不到沒有 commit 的檔案，所以安裝程式會建立 `.worktreeinclude`，列出套件的私有檔案（engine、config、rules、ledger、`CLAUDE.local.md`、`.claude/settings.local.json`），Claude Code 建立 worktree 時會把它們複製過去。`.worktreeinclude` 本身也被排除在 git 之外。團隊已經有自己的 `.worktreeinclude` 時，安裝程式不會動它，這時請在主要的 checkout 裡工作。
 
-hook 的指令是一小段啟動程式：從 `CLAUDE_PROJECT_DIR`（session 開始的資料夾）往上找 `.solo/engine/`，找到就執行對應的 hook，找不到就什麼都不做。所以 VS Code 開在子資料夾（例如 `frontend/`）時 hooks 也能運作；依官方文件，Claude Code 在子資料夾啟動時，仍然會讀 repo 根目錄的 `.claude/settings.local.json`，SessionStart 則會提醒 Claude 從根目錄執行套件的指令。hook 讀的是 hook 輸入裡的 `cwd`，所以在 worktree 裡檢查的是 worktree 的檔案。
+hook 的指令是一小段啟動程式：從 `CLAUDE_PROJECT_DIR`（session 開始的資料夾）往上找 `.solo/engine/`，找到就執行對應的 hook，找不到就什麼都不做。所以 VS Code 開在子資料夾（例如 `frontend/`）時 hooks 也能運作；依官方文件，Claude Code 在子資料夾啟動時，仍然會讀 repo 根目錄的 `.claude/settings.local.json`，SessionStart 則會提醒 Claude 從根目錄執行套件的指令。hook 讀的是 hook 輸入裡的 `cwd`，所以在 worktree 裡檢查的是 worktree 的檔案。路徑以 real path 比對，所以經由 junction、symlink 或 8.3 短檔名開啟的 repo，行為和直接開啟時一樣。
 
 每個 worktree 都要各自安裝依賴（例如 `node_modules`），會花時間和硬碟空間；pnpm 共用套件儲存區，可以降低這個成本。適合並行的是彼此獨立的任務，例如一個功能加一個 bug 修正；把同一個功能拆給多個 session，協調成本通常比省下的時間還多。Boris 同時開 5 個本機 session 加上 5 到 10 個網頁 session，但 Max 5x 的合理上限是 2 個實作 session 加 1 個輕量 session。
 
@@ -321,8 +321,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - **baseline 比對是啟發式的。** 它以錯誤訊息的文字為 key，所以同一個檔案裡訊息完全相同的新錯誤，會被當成舊錯誤。
 - **Bash 權限規則是文字比對，不是安全邊界**（見 §8）。
 - **換行必須是 LF。** 安裝程式用以 `\n` 錨定的 regex 解析模板。git clone 由 `.gitattributes` 保證 LF；用其他方式複製、被轉成 CRLF 的檔案，會讓規則模板的 front matter 剝不乾淨。
-- **路徑的寫法要和 git 一致。** hook 用 git 回報的 repo 根目錄去對應 Claude Code 傳來的檔案路徑。專案如果是經由 8.3 短檔名、symlink 或 junction 開啟的，兩邊寫法可能不同，hook 就會靜靜略過那些檔案。selftest 會把自己的暫存路徑轉成 canonical 形式（CI 的 Windows runner 暫存路徑是 `C:\Users\RUNNER~1\…` 這種寫法），engine 本身沒有這麼做。
-- **驗證範圍。** selftest 67 項：建置時在 Linux 通過，2026-09-28 在 Windows 11 原生通過，之後每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 執行。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
+- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-28 在 Windows 11 原生通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 69 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
 - **能省多少額度，目前沒有量化數據。** 請用 `/usage` 的 attribution 和 statusline 自己量。
 - **Claude Code 變化很快。** 套件用到的功能多在 v2.1.2xx 之後才有，安裝前先 `claude update`。
 - **Anthropic 公布的數字**（80% 的合併程式碼、每人 8 倍的合併量、200% 的產出成長）多數是自我報告，而且以行數計算。這個架構不追求這些數字，也不用程式碼行數當指標。

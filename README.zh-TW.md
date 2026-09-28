@@ -5,7 +5,7 @@
 > 把 Anthropic 公開描述的 Claude Code 開發做法，縮小成一個人加一個 Max 5x 方案用得起的規模。
 > **模型負責做，工具負責判定做對了沒，你負責決定做什麼、以及要不要收下成果。**
 
-**TL;DR (EN).** A Claude Code setup (11 skills, 3 subagents, 3 hooks, a status line, a zero-dependency Node engine) that replaces "Claude says it's done" with "the checks say it's done", and installs privately so it works inside a repo your whole team pulls without showing up in git. Its selftest (67 checks) runs in CI on Ubuntu and Windows; the README says what is verified and what is not.
+**TL;DR (EN).** A Claude Code setup (11 skills, 3 subagents, 3 hooks, a status line, a zero-dependency Node engine) that replaces "Claude says it's done" with "the checks say it's done", and installs privately so it works inside a repo your whole team pulls without showing up in git. Its selftest (69 checks) runs in CI on Ubuntu and Windows; the README says what is verified and what is not.
 
 [![selftest](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml/badge.svg)](https://github.com/yapeepee/workflow/actions/workflows/selftest.yml)
 
@@ -35,7 +35,7 @@
 ```bash
 git clone https://github.com/yapeepee/workflow.git solo-ai-team   # 放在任何專案 repo 以外的地方
 cd solo-ai-team
-node selftest.mjs                          # 67/67 passed
+node selftest.mjs                          # 69/69 passed
 node install.mjs --user-only               # 每台電腦一次：skills、子代理、狀態列 → ~/.claude
 node install.mjs "<repo 根目錄>" --dry-run   # 預覽：列出會建立的每個檔案
 node install.mjs "<repo 根目錄>"             # 每個 repo 一次；最後一行是 "git status: unchanged"
@@ -92,7 +92,7 @@ skills 和子代理放在 `~/.claude`，從來不在 repo 裡。專案裡的檔�
 ```
 solo-ai-team/
 ├─ install.mjs          安裝程式：不刪除任何東西、不修改被追蹤的檔案、不執行會寫入的 git 指令
-├─ selftest.mjs         在丟棄式 git repo 裡跑 67 項檢查：engine、私有安裝、共用 repo 模式
+├─ selftest.mjs         在丟棄式 git repo 裡跑 69 項檢查：engine、私有安裝、共用 repo 模式
 ├─ kit/
 │  ├─ engine/           hooks、check runner、test guard、token guard、ledger、snap、狀態列
 │  │                    （Node，零依賴）→ <repo>/.solo/engine/
@@ -118,19 +118,18 @@ solo-ai-team/
 
 ## 已驗證 / 未驗證
 
-**由 `selftest.mjs`（67 項）驗證**：在 Windows 11 原生環境、Node 22 上通過（2026-09-28），之後每次 push 由 [CI](.github/workflows/selftest.yml) 在 Ubuntu + Windows × Node 18/22 執行。它會建立丟棄式的 git repo（路徑含空白、一個模擬的遠端、兩份 clone），讓 git 使用自己的空設定，並照 Claude Code 呼叫 hook 的方式驅動它們：`node <script>`，JSON 從 stdin 傳入。
+**由 `selftest.mjs`（69 項）驗證**：在 Windows 11 原生環境、Node 22 上通過（2026-09-28），之後每次 push 由 [CI](.github/workflows/selftest.yml) 在 Ubuntu + Windows × Node 18/22 執行。它會建立丟棄式的 git repo（路徑含空白、一個模擬的遠端、兩份 clone），讓 git 使用自己的空設定，並照 Claude Code 呼叫 hook 的方式驅動它們：`node <script>`，JSON 從 stdin 傳入。
 
-- Engine：編輯後格式化；Stop hook 擋下 → 修正 → 通過 → 靜默；3 輪上限；不追蹤子代理的編輯；token guard 只看改動的行，以及共用模式下的行為；test guard（JS/TS、xUnit、pytest；被 skip、被註解、被刪除、被搬移的測試）；`ENV`、`CHANGED FILES`、`SUITE DID NOT RUN`、`disabledSteps`；baseline 在程式碼上下移動後仍然有效；review gate 和拆分建議；ledger 升級；狀態列；SessionStart 注入；hook 啟動程式從子資料夾找到套件，以及在沒裝套件的地方什麼都不做。
-- 安裝程式：`git status` 不變、`.gitignore` 沒動、`git add -A` 不會加入任何檔案；隊友 commit 自己的 Claude 設定；重新安裝保留你自己的 hook；團隊開始追蹤 `CLAUDE.local.md` 時備份並警告；repo 追蹤了個人路徑時拒絕安裝；共用與個人模式的判斷；拿掉 `--fix`；依賴健康檢查；`--shared --reconfigure`。
+- Engine：編輯後格式化；Stop hook 擋下 → 修正 → 通過 → 靜默；3 輪上限；不追蹤子代理的編輯；token guard 只看改動的行，以及共用模式下的行為；test guard（JS/TS、xUnit、pytest；被 skip、被註解、被刪除、被搬移的測試）；`ENV`、`CHANGED FILES`、`SUITE DID NOT RUN`、`disabledSteps`；baseline 在程式碼上下移動後仍然有效；review gate 和拆分建議；ledger 升級；狀態列；SessionStart 注入；hook 啟動程式從子資料夾找到套件，以及在沒裝套件的地方什麼都不做；經由 junction 或 symlink 開啟的 repo。
+- 安裝程式：`git status` 不變、`.gitignore` 沒動、`git add -A` 不會加入任何檔案；隊友 commit 自己的 Claude 設定；重新安裝保留你自己的 hook；團隊開始追蹤 `CLAUDE.local.md` 時備份並警告；repo 追蹤了個人路徑時拒絕安裝；共用與個人模式的判斷；拿掉 `--fix`；依賴健康檢查；`--shared --reconfigure`；經由 junction 或 symlink 安裝。
 
-**人工檢查過、不在 CI 裡（2026-09）**：在 Linux VM 裡的一個真實 Angular 22 專案（[ARCHITECTURE §15](docs/ARCHITECTURE.zh-TW.md)）；一個有 eslint、tsc、vitest 和 Prettier 的 TypeScript 專案；共用 repo 的格式化還原，用真的 Prettier 3；git 2.43 在 pull 時覆蓋被排除的檔案。
+**人工檢查過、不在 CI 裡（2026-09）**：在 Linux VM 裡的一個真實 Angular 22 專案（[ARCHITECTURE §15](docs/ARCHITECTURE.zh-TW.md)）；一個有 eslint、tsc、vitest 和 Prettier 的 TypeScript 專案；共用 repo 的格式化還原，用真的 Prettier 3；git 2.43 在 pull 時覆蓋被排除的檔案；8.3 短檔名：把 fixture 放在短檔名路徑下跑完整個 selftest（2026-09-28）。
 
 **沒有驗證的部分：**
 
 - **模型那一端。** Claude 照著 skill 做時，寫出的任務卡、計畫和測試好不好。fixture 量不到判斷力，只有實際使用量得到。
 - **真實的 Claude Code session。** selftest 重播 `kit/settings.json` 裡 hook 的 `command` 和 `args`，這就是 Claude Code 執行它們的方式，但終究是重播。
 - **省下多少額度。** 目前沒有數字，請用 `/usage` 和狀態列自己量。
-- **寫法和 git 不同的路徑。** hook 要把 Claude Code 傳來的檔案路徑和 git 回報的 repo 根目錄比對，才知道檔案屬於哪個 repo。如果專案是經由 8.3 短檔名、symlink 或 junction 開啟的，兩邊的寫法可能不同，hook 就會靜靜略過那個檔案。selftest 會把自己的路徑轉成 canonical 形式，engine 不會。
 - **macOS。** 從沒跑過。
 
 ## 失敗紀錄 → 機制
@@ -144,7 +143,7 @@ solo-ai-team/
 - **git 在 pull 時沒問就蓋掉了私人檔案**（在 git 2.43 實測）。git 把被排除的檔案視為可以覆蓋，隊友 commit 同名檔案就會蓋掉你的 → SessionStart 把 `CLAUDE.local.md` 和 `settings.local.json` 備份到 `.solo/backup/`，一旦它們變成被追蹤的檔案就發出警告。
 - **selftest 在真正用過 Claude Code 的電腦上崩潰**（2026-09-28，發佈前審查發現）。Claude Code 會把 `**/.claude/settings.local.json` 加進全域 git excludes，於是 fixture 的 `git add -A` 什麼都沒加：60/61，最後 7 項沒跑。在這種電腦上，「git status 為空」也不必靠安裝程式自己的 exclude 就會通過 → selftest 改讓 git 使用自己的空設定，並由 CI 在 Ubuntu 和 Windows 上執行。
 - **在 Windows 上 clone 會弄壞規則模板**（2026-09-28，發佈前審查發現）。Git for Windows 預設 `core.autocrlf=true`，而安裝程式用以 `\n` 錨定的 regex 剝除模板的 front matter，CRLF checkout 就把 `paths: "{{ROOT}}…"` 帶進每個 session → `.gitattributes` 鎖定 LF，CI 遇到任何 CRLF checkout 就失敗。
-- **CI 第一次在 Windows 上跑就失敗，31/52**（2026-09-28，第一次 CI）。runner 的暫存資料夾是 `C:\Users\RUNNER~1\…` 這種 8.3 短檔名，git 回報的卻是長路徑，所以沒有任何被編輯的檔案對應得到測試 repo；作者的使用者名稱夠短，本機從來不會產生短檔名 → selftest 把暫存資料夾轉成 canonical 路徑（`fs.realpathSync.native`），把 `TEMP` 指向短檔名就能在本機重現這次失敗。engine 本身仍然照原樣比對路徑（見「沒有驗證的部分」）。
+- **CI 第一次在 Windows 上跑就失敗，31/52**（2026-09-28，第一次 CI）。runner 的暫存資料夾是 `C:\Users\RUNNER~1\…` 這種 8.3 短檔名，git 回報的卻是長路徑，所以沒有任何被編輯的檔案對應得到測試 repo。真實使用時，經由短檔名、junction 或 symlink 開啟的專案也會這樣：hook 靜靜略過每一次編輯，安裝程式的排除規則也對不上，套件直接出現在 `git status`。作者的使用者名稱夠短，本機從來不會產生短檔名 → 路徑看起來在 repo 外面時，engine 先比對 real path（`fs.realpathSync.native`）再下結論，安裝程式也用同樣的方式解析目標路徑，selftest 則加上經由 junction 或 symlink 開啟 repo 的檢查。
 
 ## 演化來源
 

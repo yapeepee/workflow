@@ -1,4 +1,4 @@
-# "67/67 passed" in the README is a claim a machine other than the author's can falsify:
+# "69/69 passed" in the README is a claim a machine other than the author's can falsify:
 # the selftest runs on both supported platforms, on the oldest supported Node and a current one.
 name: selftest
 on: [push, pull_request]

@@ -15,8 +15,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const KIT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'kit');
-// git reports canonical paths; os.tmpdir() may hold an 8.3 short name (C:\Users\RUNNER~1\… on CI's Windows runner)
-// or a symlink (/var → /private/var on macOS), and then no edited file maps into the repo.
+// Fixtures use the canonical spelling of the temp folder, which os.tmpdir() may not (C:\Users\RUNNER~1\… on CI's
+// Windows runner, /var → /private/var on macOS), so the path assertions below compare like with like.
+// Other spellings of a repo path have checks of their own (junction or symlink).
 const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'solo selftest ')));
 // Claude Code adds **/.claude/settings.local.json to the global git excludes. Inherited, that rule made a fixture's
 // `git add -A` stage nothing, and let "git status is empty" pass without the installer's own exclude doing the work.
@@ -295,6 +296,17 @@ try {
   fs.rmSync(viaLauncher);
   r = runKitHook('Stop', { session_id: 'no-kit-here', cwd: base }, base);
   check('launcher is a silent no-op where the kit is not installed', r.code === 0 && r.out === '' && r.err === '', r.err);
+  // A session started through a junction or symlink: git reports the real path, Claude Code passes the one it started in.
+  const alias = path.join(base, 'alias');
+  fs.symlinkSync(repo, alias, 'junction'); // no admin rights needed on Windows; a plain symlink elsewhere
+  const aliasFile = path.join(alias, 'app', 'src', 'alias.ts');
+  fs.writeFileSync(aliasFile, 'export const a = "BAD";   \n');
+  hook('hook-after-edit.mjs', { session_id: `${sid}-alias`, cwd: alias, tool_name: 'Write', tool_input: { file_path: aliasFile } }, alias);
+  const aliasFormatted = fs.readFileSync(aliasFile, 'utf8') === 'export const a = "BAD";\n';
+  r = hook('hook-stop.mjs', { session_id: `${sid}-alias`, cwd: alias }, alias);
+  j = r.out ? JSON.parse(r.out) : {};
+  check('a repo opened through a junction or symlink: edits are still formatted and checked', aliasFormatted && j.decision === 'block' && /BAD is not allowed/.test(j.reason || ''), r.out || r.err);
+  fs.rmSync(aliasFile);
 
   // ---------- check runner: baseline ----------
   write('app/src/legacy.ts', 'export const y = "BAD";\n');
@@ -497,6 +509,22 @@ try {
     '--shared --reconfigure switches to shared mode and stays out of git',
     reInst.status === 0 && ownCfg().shared === true && ownCfg().ship.mode === 'manual' && /This is a shared repo/.test(ownLocal()) && g(own, 'status', '--porcelain') === '',
     reInst.stderr || reInst.stdout.slice(-500),
+  );
+
+  // installing through a junction or symlink: the exclude rules must land under the repo's real root
+  const realRepo = path.join(base, 'real repo');
+  fs.mkdirSync(realRepo, { recursive: true });
+  g(realRepo, 'init', '-q');
+  fs.writeFileSync(path.join(realRepo, 'README.md'), '# real\n');
+  g(realRepo, 'add', '-A');
+  g(realRepo, 'commit', '-qm', 'init');
+  const linkToRepo = path.join(base, 'link to repo');
+  fs.symlinkSync(realRepo, linkToRepo, 'junction');
+  const linkInst = spawnSync(process.execPath, [INSTALL, linkToRepo], { encoding: 'utf8', env });
+  check(
+    'installing through a junction or symlink keeps the kit out of git status',
+    linkInst.status === 0 && /git status: unchanged/.test(linkInst.stdout) && g(realRepo, 'status', '--porcelain') === '' && fs.existsSync(path.join(realRepo, '.worktreeinclude')),
+    linkInst.stderr || linkInst.stdout.slice(-500),
   );
 } catch (e) {
   check('selftest crashed', false, e.stack);

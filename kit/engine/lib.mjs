@@ -182,12 +182,26 @@ export function loadConfig(root) {
 // ---------- paths & globs ----------
 export const posix = (p) => String(p).split(path.sep).join('/').replace(/\\/g, '/');
 
+// The OS's own spelling of a path: 8.3 short names expanded, junctions and symlinks resolved. A path that does not
+// exist (yet, or any more) keeps its name under the real spelling of its nearest existing parent.
+function realPath(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    const parent = path.dirname(p);
+    return parent === p ? p : path.join(realPath(parent), path.basename(p));
+  }
+}
+
+// git reports the repo root in its real spelling, while Claude Code passes paths the way the session was opened
+// (through a junction, a symlink or an 8.3 short name). Compare real paths before calling a file outside the repo.
 export function toRel(root, file) {
   if (!file) return null;
   const abs = path.isAbsolute(file) ? file : path.resolve(root, file);
-  const rel = path.relative(root, abs);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return posix(rel);
+  const outside = (r) => !r || r.startsWith('..') || path.isAbsolute(r);
+  let rel = path.relative(root, abs);
+  if (outside(rel)) rel = path.relative(realPath(root), realPath(abs));
+  return outside(rel) ? null : posix(rel);
 }
 
 const reCache = new Map();

@@ -33,7 +33,7 @@ Requires Node.js 18 or later, git and a recent Claude Code (`claude update`). Ru
 ```bash
 git clone https://github.com/yapeepee/workflow.git solo-ai-team   # anywhere outside your project repos
 cd solo-ai-team
-node selftest.mjs                          # 67/67 passed
+node selftest.mjs                          # 69/69 passed
 node install.mjs --user-only               # once per computer: skills, subagents, status line → ~/.claude
 node install.mjs "<repo root>" --dry-run   # preview: lists every file it would create
 node install.mjs "<repo root>"             # once per repo; ends with "git status: unchanged"
@@ -90,7 +90,7 @@ A repo counts as **shared** when anyone other than you (by `git config user.emai
 ```
 solo-ai-team/
 ├─ install.mjs          installer: never deletes, never edits tracked files, never runs git commands that write
-├─ selftest.mjs         67 checks in throwaway git repos: engine, private install, shared-repo mode
+├─ selftest.mjs         69 checks in throwaway git repos: engine, private install, shared-repo mode
 ├─ kit/
 │  ├─ engine/           hooks, check runner, test guard, token guard, ledger, snap, status line
 │  │                    (Node, no dependencies) → <repo>/.solo/engine/
@@ -116,19 +116,18 @@ The ten principles behind these, each traced from what Anthropic does to why it 
 
 ## Verified / not verified
 
-**Verified by `selftest.mjs` (67 checks)** on Windows 11, natively, with Node 22 (2026-09-28), and by [CI](.github/workflows/selftest.yml) on Ubuntu + Windows × Node 18/22 on every push. It builds throwaway git repos (paths with spaces, a fake remote, two clones), runs git with an empty config of its own, and drives the hooks the way Claude Code calls them: `node <script>` with JSON on stdin.
+**Verified by `selftest.mjs` (69 checks)** on Windows 11, natively, with Node 22 (2026-09-28), and by [CI](.github/workflows/selftest.yml) on Ubuntu + Windows × Node 18/22 on every push. It builds throwaway git repos (paths with spaces, a fake remote, two clones), runs git with an empty config of its own, and drives the hooks the way Claude Code calls them: `node <script>` with JSON on stdin.
 
-- Engine: format-on-edit; Stop hook block → fix → pass → silent; the 3-round cap; subagent edits not chased; the token guard on changed lines and in shared mode; the test guard (JS/TS, xUnit, pytest; skipped, commented-out, deleted and moved tests); `ENV`, `CHANGED FILES`, `SUITE DID NOT RUN`, `disabledSteps`; the baseline across line shifts; the review gate and split suggestion; ledger escalation; the status line; SessionStart injection; the hook launcher from a subfolder, and as a no-op where the kit is not installed.
-- Installer: `git status` unchanged, `.gitignore` untouched, `git add -A` stages nothing; teammates committing their own Claude files; reinstalling keeps your own hooks; backup and warning when the team starts tracking `CLAUDE.local.md`; refusal when the repo tracks a personal path; shared vs. personal detection; `--fix` stripping; dependency health notes; `--shared --reconfigure`.
+- Engine: format-on-edit; Stop hook block → fix → pass → silent; the 3-round cap; subagent edits not chased; the token guard on changed lines and in shared mode; the test guard (JS/TS, xUnit, pytest; skipped, commented-out, deleted and moved tests); `ENV`, `CHANGED FILES`, `SUITE DID NOT RUN`, `disabledSteps`; the baseline across line shifts; the review gate and split suggestion; ledger escalation; the status line; SessionStart injection; the hook launcher from a subfolder, and as a no-op where the kit is not installed; a repo opened through a junction or symlink.
+- Installer: `git status` unchanged, `.gitignore` untouched, `git add -A` stages nothing; teammates committing their own Claude files; reinstalling keeps your own hooks; backup and warning when the team starts tracking `CLAUDE.local.md`; refusal when the repo tracks a personal path; shared vs. personal detection; `--fix` stripping; dependency health notes; `--shared --reconfigure`; installing through a junction or symlink.
 
-**Checked by hand, not in CI (2026-09):** a real Angular 22 app in a Linux VM ([ARCHITECTURE §15](docs/ARCHITECTURE.md)); a TypeScript project with eslint, tsc, vitest and Prettier; the shared-repo formatter revert with real Prettier 3; git 2.43 overwriting an excluded file on pull.
+**Checked by hand, not in CI (2026-09):** a real Angular 22 app in a Linux VM ([ARCHITECTURE §15](docs/ARCHITECTURE.md)); a TypeScript project with eslint, tsc, vitest and Prettier; the shared-repo formatter revert with real Prettier 3; git 2.43 overwriting an excluded file on pull; 8.3 short names, by running the whole selftest with its fixtures under a short-name path (2026-09-28).
 
 **Not verified:**
 
 - **The model side.** Whether Claude writes good task cards, plans and tests when it follows the skills. Fixtures do not measure judgment; only use does.
 - **A live Claude Code session.** The selftest replays the exact hook `command` and `args` from `kit/settings.json`, which is how Claude Code runs them, but it is a replay.
 - **Usage savings.** No numbers yet. Measure with `/usage` and the status line.
-- **Paths spelled differently from git's.** The hooks map an edited file into the repo by comparing the path Claude Code passes with the root git reports. If a project is reached through an 8.3 short name, a symlink or a junction, the two can differ, and the hooks then skip that file without a word. The selftest canonicalizes its own paths; the engine does not.
 - **macOS.** Never run.
 
 ## Failure log → mechanism
@@ -142,7 +141,7 @@ Most mechanisms here exist because something concrete went wrong.
 - **git replaced a private file on pull without asking** (tested with git 2.43). git treats excluded files as expendable, so a teammate committing a file with the same name overwrites yours → SessionStart backs up `CLAUDE.local.md` and `settings.local.json` to `.solo/backup/` and warns as soon as they become tracked.
 - **The selftest crashed on a real Claude Code machine** (2026-09-28, found in the pre-release review). Claude Code adds `**/.claude/settings.local.json` to the global git excludes, so a fixture's `git add -A` staged nothing: 60/61, with the last 7 checks never run. On such machines "git status is empty" also passed without the installer's own exclude doing anything → the selftest now runs git with an empty config of its own, and CI runs it on Ubuntu and Windows.
 - **A Windows clone would have broken the rules templates** (2026-09-28, found in the pre-release review). Git for Windows defaults to `core.autocrlf=true`, and the installer strips template front matter with a `\n`-anchored regex, so a CRLF checkout leaked `paths: "{{ROOT}}…"` into every session → `.gitattributes` pins LF, and CI fails on any CRLF checkout.
-- **CI's first Windows run failed, 31/52** (2026-09-28, the first CI run). The runner's temp folder is `C:\Users\RUNNER~1\…`, an 8.3 short name, while git reports the long path, so no edited file mapped into the test repo. The author's user name is short enough never to produce one → the selftest canonicalizes its temp folder (`fs.realpathSync.native`), and pointing `TEMP` at a short name reproduces the failure locally. The engine itself still compares paths as given (see Not verified).
+- **CI's first Windows run failed, 31/52** (2026-09-28, the first CI run). The runner's temp folder is `C:\Users\RUNNER~1\…`, an 8.3 short name, while git reports the long path, so no edited file mapped into the test repo. Real use hits the same wall when a project is opened through a short name, a junction or a symlink: the hooks skipped every edit without a word, and the installer's exclude rules missed, leaving the kit in `git status`. The author's user name is short enough never to produce one → when a path looks outside the repo, the engine compares real paths (`fs.realpathSync.native`) before giving up, the installer resolves its target the same way, and the selftest checks a repo opened through a junction or symlink.
 
 ## Lineage
 
