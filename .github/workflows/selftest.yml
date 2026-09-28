@@ -1,0 +1,30 @@
+# "67/67 passed" in the README is a claim a machine other than the author's can falsify:
+# the selftest runs on both supported platforms, on the oldest supported Node and a current one.
+name: selftest
+on: [push, pull_request]
+permissions:
+  contents: read   # the selftest works in the runner's temp folder; no job needs a write token
+
+jobs:
+  selftest:
+    name: selftest (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['18', '22']
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      - name: LF checkout (the installer parses templates with \n-anchored regexes)
+        run: |
+          if git ls-files --eol | grep 'w/crlf'; then
+            echo 'CRLF in the working tree: .gitattributes no longer pins LF'
+            exit 1
+          fi
+      - name: syntax check (snap.mjs needs Playwright, so the selftest never imports it)
+        run: for f in install.mjs selftest.mjs kit/engine/*.mjs; do node --check "$f"; done
+      - run: node selftest.mjs
