@@ -51,7 +51,26 @@ if (!dir || !fs.existsSync(dir)) {
 
 const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], root) || '?';
 const dirty = (git(['status', '--porcelain'], root) || '').split('\n').filter(Boolean).length;
-const spec = readHead(path.join(dir, 'spec.md'), 30);
+// The card is injected up to its Change log, which follows as its own block: /spec adds the log at the bottom, and a
+// requirement changed after approval must reach the new session even when the card is longer than the injected head.
+function specParts(file) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  } catch {
+    return { card: '', changes: [] };
+  }
+  const at = lines.findIndex((l) => /^##\s+Change\s*log\b/i.test(l));
+  const body = at < 0 ? lines : lines.slice(0, at);
+  const MAX = 40;
+  const card = body.slice(0, MAX).join('\n').trimEnd() + (body.length > MAX ? `\n… (${body.length - MAX} more lines in spec.md)` : '');
+  const rest = at < 0 ? [] : lines.slice(at + 1);
+  const end = rest.findIndex((l) => /^#{1,2}\s/.test(l)); // the log ends at the next section
+  const changes = (end < 0 ? rest : rest.slice(0, end)).filter((l) => l.trim() && !/^\s*(<!--|```)/.test(l));
+  const KEEP = 10;
+  return { card, changes: changes.length > KEEP ? [`… (${changes.length - KEEP} earlier changes in spec.md)`, ...changes.slice(-KEEP)] : changes };
+}
+const { card: spec, changes } = specParts(path.join(dir, 'spec.md'));
 const progress = readHead(path.join(dir, 'progress.md'), 25);
 const hasPlan = fs.existsSync(path.join(dir, 'plan.md'));
 
@@ -71,7 +90,21 @@ const lines = [
   `[solo] active task: ${slug} · branch ${branch} · ${dirty} uncommitted file(s)${hasPlan ? ` · plan: .solo/tasks/${slug}/plan.md` : ''}`,
 ];
 if (spec) lines.push('--- spec.md ---', spec);
+if (changes.length) lines.push('--- spec.md Change log (approved changes, newest last) ---', ...changes);
 const phase = hasPlan ? currentPhase(path.join(dir, 'plan.md')) : null;
 if (phase) lines.push(phase);
+// /spec sends an M task through /clear before plan mode, so the phase format it describes would be lost with the old
+// context. Carry it into the planning session until plan.md exists.
+if (!hasPlan && /^Size:\s*M\b/m.test(spec)) {
+  lines.push(
+    `--- plan format for this M task: plan mode first; after the user approves, save the plan to .solo/tasks/${slug}/plan.md as short phases (about 150 lines in total), each small enough to review on its own ---`,
+    '## Phase <n> — <goal> · status: todo',
+    'Files: <files it changes>',
+    'Covers: <AC ids>',
+    'Pattern: <recipe from .solo/architecture.md> — follow `<reference file>`',
+    'Verify: <the command that proves this phase works>',
+    '--- then /phase once per phase, and /ship after the last one ---',
+  );
+}
 if (progress) lines.push('--- progress.md (continue from "Next") ---', progress);
 say(lines);

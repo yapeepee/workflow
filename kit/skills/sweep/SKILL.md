@@ -12,7 +12,7 @@ If `.solo/engine/` does not exist in this repo, stop and tell me to run the solo
 Deleting code is first-class work. Remove what no longer earns its keep, in small verified steps.
 
 1. Start from a clean tree. In a shared repo (`"shared": true` in `.solo/config.json`) stay on my current branch and touch no git state; otherwise use a new branch `sweep/<yyyy-mm-dd>` (or ask me to open a worktree with `claude -w sweep`).
-2. Start with the cleanup items already waiting in `.solo/inbox.md`. Then collect more candidates with tools, not by reading everything. Delegate any wide reading to `scout`.
+2. Start with the cleanup items already waiting in `.solo/inbox.md`. Then collect more candidates with tools, not by reading everything. Delegate exhaustive usage searches ("is X used anywhere") to `scout`, and read each candidate yourself before deleting it.
    - JS/TS: `npx --no-install knip` if knip is installed (unused files, exports, dependencies). If not, suggest adding it and continue with grep.
    - .NET: compiler warnings for unused code, unused package references.
    - Everywhere: `git grep -nE "TODO|FIXME|HACK|XXX"`, feature flags that are always on or off, commented-out blocks, duplicate helpers.

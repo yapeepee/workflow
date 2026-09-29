@@ -16,7 +16,7 @@ Extra focus (may be empty): $ARGUMENTS
 
 The review always covers the whole branch — everything since the branch point (the base that `node .solo/engine/check.mjs --review-gate` prints) plus uncommitted work — because the serious issues sit where parts meet, not inside one file.
 
-0. Threat model. If `.solo/security.md` is missing, build it from the code first, show it to me, and write it only after I approve. At most ~120 lines:
+0. Threat model. If `.solo/security.md` is missing, build it from the code first (take roles and product rules from `.solo/product.md` when it is written), show it to me, and write it only after I approve. At most ~120 lines:
    ```
    # Threat model — <project>
    Assets: <what must not leak or be changed: accounts, tokens, personal data, files, money>

@@ -12,13 +12,15 @@
 //                   (after adding ESLint, Prettier or a test runner; the old file is kept as a backup)
 //   --shared        treat the repo as shared even if you are its only recent committer
 //   --personal      treat the repo as yours alone (default when git history has a single author)
-//   --force         update kit-owned files (engine, skills, agents). Your config, rules, CLAUDE.local.md and
-//                   settings are never overwritten; .claude/settings.local.json is merged.
+//   --force         update kit-owned files (engine, skills, agents). Your config, rules, CLAUDE.local.md,
+//                   product.md, architecture.md and settings are never overwritten; .claude/settings.local.json
+//                   is merged, and an older CLAUDE.local.md only gets the imports a newer kit needs.
 //   --dry-run       print what would happen, change nothing
 //
 // Where things go
 //   ~/.claude/skills, ~/.claude/agents     the kit's skills and subagents (personal, shared by all your projects)
-//   <repo>/.solo/                           engine, config, rules, ledger, decisions, task state
+//   <repo>/.solo/                           engine, config, rules, ledger, decisions, product and architecture
+//                                           notes (imported by CLAUDE.local.md), task state
 //   <repo>/CLAUDE.local.md                  your private project instructions (Claude Code's standard personal file)
 //   <repo>/.claude/settings.local.json      hooks, model, permissions (Claude Code's standard personal settings file)
 // All repo paths are added to .git/info/exclude — git's per-clone ignore list, which is never committed.
@@ -71,12 +73,21 @@ function write(file, content, { overwrite = FORCE } = {}) {
   return true;
 }
 
+// Kit-owned files (engine, skills, agents) are replaced only with --force. Without it, an older copy stays in place,
+// so remember which ones differ: a new CLAUDE.local.md next to last month's skills would contradict them.
+const staleKitFiles = [];
+function writeKit(file, content) {
+  const cur = FORCE ? null : readText(file);
+  if (cur !== null && cur !== content.toString()) staleKitFiles.push(shown(file));
+  return write(file, content);
+}
+
 function copyDir(src, dst) {
   for (const e of fs.readdirSync(src, { withFileTypes: true })) {
     const s = path.join(src, e.name);
     const d = path.join(dst, e.name);
     if (e.isDirectory()) copyDir(s, d);
-    else write(d, fs.readFileSync(s));
+    else writeKit(d, fs.readFileSync(s));
   }
 }
 
@@ -359,7 +370,7 @@ function installSkillsAndAgents() {
       notes.push(`~/.claude/skills/${name} already exists and is not from this kit — left untouched, so /${name} stays yours.`);
       continue;
     }
-    write(dst, fs.readFileSync(path.join(KIT, 'skills', name, 'SKILL.md')));
+    writeKit(dst, fs.readFileSync(path.join(KIT, 'skills', name, 'SKILL.md')));
   }
   for (const f of fs.readdirSync(path.join(KIT, 'agents'))) {
     const dst = path.join(HOME_CLAUDE, 'agents', f);
@@ -368,7 +379,7 @@ function installSkillsAndAgents() {
       notes.push(`~/.claude/agents/${f} already exists and is not from this kit — left untouched.`);
       continue;
     }
-    write(dst, fs.readFileSync(path.join(KIT, 'agents', f)));
+    writeKit(dst, fs.readFileSync(path.join(KIT, 'agents', f)));
   }
 }
 
@@ -391,6 +402,11 @@ function installPersonalFiles() {
 }
 
 function printLog(title) {
+  if (staleKitFiles.length) {
+    notes.push(
+      `${staleKitFiles.length} installed kit file(s) are older than this kit and were kept (for example ${staleKitFiles[0]}), so the skills, agents or hooks may not match your CLAUDE.local.md. Update them: node install.mjs --user-only --force, then node install.mjs "<repo>" --force in each project.`,
+    );
+  }
   console.log(`\nsolo-ai-team → ${title}${DRY ? '  (dry run, nothing written)' : ''}\n`);
   if (log.length) console.log(`Files:\n${log.join('\n')}`);
   if (notes.length) console.log(`\nNotes:\n${notes.map((n) => `  - ${n}`).join('\n')}`);
@@ -541,10 +557,13 @@ for (const d of detected) {
   ruleImports.push(`@.solo/rules/${d.stack.name}.md`);
 }
 
-// 5) ledger, decisions, inbox (noticed-but-not-done work)
+// 5) ledger, decisions, inbox (noticed-but-not-done work), product and architecture notes
 write(path.join(TARGET, '.solo', 'ledger.json'), `${JSON.stringify({ version: 1, threshold: 3, entries: [], enforced: {} }, null, 2)}\n`, { overwrite: false });
 write(path.join(TARGET, '.solo', 'decisions.md'), fs.readFileSync(path.join(KIT, 'templates', 'decisions.md')), { overwrite: false });
 write(path.join(TARGET, '.solo', 'inbox.md'), fs.readFileSync(path.join(KIT, 'templates', 'inbox.md')), { overwrite: false });
+// Both are imported by CLAUDE.local.md, so every session and every custom subagent starts with the product's rules
+// and the architecture's recipes. They start as two-line stubs that name the skill that writes them (/product, /architecture).
+for (const f of ['product.md', 'architecture.md']) write(path.join(TARGET, '.solo', f), fs.readFileSync(path.join(KIT, 'templates', f)), { overwrite: false });
 
 // 6) CLAUDE.local.md — Claude Code's standard personal instructions file; loads next to the team's CLAUDE.md
 const commands = detected.length
@@ -558,7 +577,8 @@ const topDirs = fs
   .join('\n');
 // A repo that relies on AGENTS.md stops loading it once a CLAUDE.local.md exists, unless we import it.
 const needsAgentsImport = fs.existsSync(path.join(TARGET, 'AGENTS.md')) && !fs.existsSync(path.join(TARGET, 'CLAUDE.md'));
-const imports = [...(needsAgentsImport ? ['@AGENTS.md'] : []), ...ruleImports];
+const KNOWLEDGE = ['@.solo/product.md', '@.solo/architecture.md'];
+const imports = [...(needsAgentsImport ? ['@AGENTS.md'] : []), ...KNOWLEDGE, ...ruleImports];
 let localMd = fs
   .readFileSync(path.join(KIT, 'templates', 'CLAUDE.local.md'), 'utf8')
   .replace('{{IMPORTS}}', imports.length ? `${imports.join('\n')}\n\n` : '')
@@ -570,17 +590,46 @@ const sharedLine = (localMd.match(SHARED_LINE) || [''])[0];
 if (!effectiveShared) localMd = localMd.replace(SHARED_LINE, '');
 const localMdFile = path.join(TARGET, 'CLAUDE.local.md');
 const existingLocal = readText(localMdFile);
+// Present in the Workflow section since the kit added the big-picture, architecture-recipe and requirement-change rules.
+const WORKFLOW_MARK = 'Requirement changes during the work';
+const mergeNote =
+  'Ask Claude: "merge the Map, Workflow and Compact instructions sections of .solo/CLAUDE.local.suggested.md into CLAUDE.local.md and keep the lines I added" (or merge them by hand).';
 if (existingLocal !== null && !existingLocal.includes('/learn proposes additions, /refresh prunes')) {
   write(path.join(TARGET, '.solo', 'CLAUDE.local.suggested.md'), localMd, { overwrite: true });
   notes.push('You already have a CLAUDE.local.md. Merge what you want from .solo/CLAUDE.local.suggested.md (at least the imports and the Workflow section).');
-} else if (!write(localMdFile, localMd, { overwrite: false }) && effectiveShared && sharedLine && existingLocal && !existingLocal.includes('This is a shared repo:')) {
-  // switched to --shared later: add the shared-repo rule to the kit's own CLAUDE.local.md (a private file)
-  const anchor = existingLocal.match(/^- Never commit or push.*\n/m);
-  if (anchor) {
-    const updated = existingLocal.replace(anchor[0], `${anchor[0]}${sharedLine}`);
-    log.push('  update  CLAUDE.local.md (added the shared-repo rule)');
+} else if (!write(localMdFile, localMd, { overwrite: false }) && existingLocal !== null) {
+  // The kit's own CLAUDE.local.md from an earlier install: it holds your edits and /learn's lessons, so it is never
+  // replaced. Only what a newer kit cannot work without is added in place; the rest is offered as a suggestion.
+  let updated = existingLocal;
+  const changes = [];
+  const missingImports = KNOWLEDGE.filter((imp) => !updated.split(/\r?\n/).some((l) => l.trim() === imp));
+  if (missingImports.length) {
+    const lines = updated.split('\n');
+    let at = 0;
+    while (at < lines.length && lines[at].startsWith('@')) at++;
+    if (at === 0) updated = `${missingImports.join('\n')}\n\n${updated}`;
+    else {
+      lines.splice(at, 0, ...missingImports);
+      updated = lines.join('\n');
+    }
+    changes.push(`imports ${missingImports.map((i) => i.replace('@.solo/', '')).join(', ')}`);
+  }
+  if (effectiveShared && sharedLine && !updated.includes('This is a shared repo:')) {
+    // switched to --shared later: add the shared-repo rule (the file is private either way)
+    const anchor = updated.match(/^- Never commit or push.*\n/m);
+    if (anchor) {
+      updated = updated.replace(anchor[0], `${anchor[0]}${sharedLine}`);
+      changes.push('added the shared-repo rule');
+    } else notes.push(`Add this line to the Workflow section of CLAUDE.local.md: ${sharedLine.trim()}`);
+  }
+  if (changes.length) {
+    log.push(`  update  CLAUDE.local.md (${changes.join('; ')})`);
     if (!DRY) fs.writeFileSync(localMdFile, updated);
-  } else notes.push(`Add this line to the Workflow section of CLAUDE.local.md: ${sharedLine.trim()}`);
+  }
+  if (!updated.includes(WORKFLOW_MARK)) {
+    write(path.join(TARGET, '.solo', 'CLAUDE.local.suggested.md'), localMd, { overwrite: true });
+    notes.push(`Your CLAUDE.local.md predates the Workflow rules for reading code yourself, following architecture.md and handling requirement changes. ${mergeNote}`);
+  }
 }
 
 // 7) .claude/settings.local.json — hooks, model, permissions (personal, merged with what is already there)
@@ -593,7 +642,7 @@ else write(settingsFile, `${JSON.stringify(ours, null, 2)}\n`);
 // 8) worktrees: copy the private files into new `claude -w` worktrees
 const wtInclude = path.join(TARGET, '.worktreeinclude');
 let ownWorktreeInclude = false;
-const wtPatterns = ['.solo/engine/**', '.solo/rules/**', '.solo/checks/**', '.solo/baseline/**', '.solo/config.json', '.solo/ledger.json', '.solo/decisions.md', '.solo/inbox.md', '.solo/security.md', 'CLAUDE.local.md', '.claude/settings.local.json'];
+const wtPatterns = ['.solo/engine/**', '.solo/rules/**', '.solo/checks/**', '.solo/baseline/**', '.solo/config.json', '.solo/ledger.json', '.solo/decisions.md', '.solo/inbox.md', '.solo/security.md', '.solo/product.md', '.solo/architecture.md', 'CLAUDE.local.md', '.claude/settings.local.json'];
 const wtText = readText(wtInclude);
 if (!atTop) {
   /* worktrees are created from the repo root; skip when installed into a subfolder */
@@ -659,5 +708,7 @@ Next:
   1. Read .solo/config.json and CLAUDE.local.md; fill in the TODO lines.
   2. Existing errors in the repo? Accept them once: node .solo/engine/check.mjs --update-baseline
   3. Sanity check: node .solo/engine/check.mjs --stage full
-  4. Open ${posix(TARGET)} in VS Code (the repo root is simplest) or run claude there   →   /spec <task>
+  4. Open ${posix(TARGET)} in VS Code (the repo root is simplest) or run claude there.
+     Existing code: /architecture once (rules, recipes, reference files), then /clear. A project of your own: /product.
+  5. Then, for each task: /spec <task>
 `);

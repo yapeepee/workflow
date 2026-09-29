@@ -253,7 +253,7 @@ function main() {
     console.log(
       g.required
         ? `REVIEW REQUIRED — ${g.reasons.join('; ')} (${g.files} files vs ${g.base.slice(0, 10)})`
-        : `REVIEW OPTIONAL — ${g.lines} changed lines in ${g.files} files, no risky paths (threshold ${cfg.review.minLines})`,
+        : `REVIEW OPTIONAL — ${g.lines} changed lines in ${g.files} files vs ${g.base.slice(0, 10)}, no risky paths (threshold ${cfg.review.minLines})`,
     );
     if (g.split) console.log(`SPLIT SUGGESTED — ${g.lines} changed lines >= ${cfg.review.splitLines}: propose smaller PRs that each pass the checks on their own`);
     return 0;

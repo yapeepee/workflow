@@ -24,12 +24,13 @@ Look back over this session: my corrections, failed checks, review findings, ret
    - nowhere — a one-off that is unlikely to repeat
    - `CLAUDE.local.md` → Gotchas, one line — applies across the repo
    - `.solo/rules/<topic>.md` (imported by `CLAUDE.local.md`) — framework or area rules
+   - `.solo/architecture.md` — a rule (A…) or a recipe for one kind of change, with its reference file; an architecture change, so show it to me first
    - a skill's instructions — applies to one workflow (spec, ship, …)
    - a mechanical check — the ledger printed ESCALATE, or a linter/test/check step can catch the pattern.
      Write the concrete change (lint rule config, a test, a `stop`/`full` step in `.solo/config.json`, or a hook). Once it is in place, run `node .solo/engine/ledger.mjs enforce <pattern> "<how>"` and delete the prose rule it replaces.
      Shared repo (`"shared": true` in `.solo/config.json`): enforcement stays private — a `stop`/`full` step or a small script under `.solo/checks/`. A change to the team's lint config, CI or tests is only a suggestion I can take to the team; do not write it.
    Process lessons (spec-misread, scope-creep) usually belong in a skill or `CLAUDE.local.md`, not in a linter.
-4. If an architectural decision was made or changed, append to `.solo/decisions.md`: date · decision · why · rejected alternatives · revisit when.
+4. If an architectural decision was made or changed, append to `.solo/decisions.md`: date · decision · why · rejected alternatives · revisit when. If it changes how a kind of change is built, also propose the edit to `.solo/architecture.md`.
 5. Show every proposed file change as a diff and apply only after I approve. Keep `CLAUDE.local.md` under ~150 lines: when you add a line, merge or remove another. Everything under `.solo/` and `CLAUDE.local.md` is private (excluded from git); never add it to a commit.
 6. If the task is shipped, delete `.solo/ACTIVE` so new sessions start clean.
 7. Finish with three lines: lessons logged · memory changes · enforcement changes.

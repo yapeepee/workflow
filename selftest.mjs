@@ -287,6 +287,28 @@ try {
   write('.solo/tasks/demo-task/plan.md', '# Plan\n\n## Phase 1: schema\n\n## Phase 2: orders endpoint\n'); // written before phases had a status
   r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
   check('a plan without status markers is not guessed at', /active task: demo-task/.test(r.out) && !/current phase/.test(r.out), r.out);
+  // a requirement changed after approval must reach the next session, even when the card is longer than the injected head
+  write(
+    '.solo/tasks/demo-task/spec.md',
+    `# Demo\n${Array.from({ length: 45 }, (_, i) => `- scope line ${i + 1}`).join('\n')}\nAcceptance:\n- [ ] AC1 works\n\n## Change log\n- 2026-09-30 · export as CSV too · AC3 added\n`,
+  );
+  r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
+  check(
+    "session-start injects the spec's Change log even past the card's head",
+    /Change log \(approved changes/.test(r.out) && /export as CSV too · AC3 added/.test(r.out) && /more lines in spec\.md/.test(r.out),
+    r.out,
+  );
+  write('.solo/tasks/demo-task/spec.md', '# Demo\nAcceptance:\n- [ ] works\n\n## Change log\n\n## Notes\n- not a change\n');
+  r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
+  check('an empty Change log adds nothing, and the next section is not read as changes', /# Demo/.test(r.out) && !/Change log \(approved/.test(r.out) && !/not a change/.test(r.out), r.out);
+  // /spec sends an M task through /clear before plan mode: the planning session must still get the phase format
+  const planFile = path.join(repo, '.solo', 'tasks', 'demo-task', 'plan.md');
+  const planKeep = fs.readFileSync(planFile, 'utf8');
+  fs.rmSync(planFile);
+  write('.solo/tasks/demo-task/spec.md', '# Demo\nSize: M\nAcceptance:\n- [ ] AC1 works\n');
+  r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
+  check('an M task without a plan gets the phase format, Pattern line included', /plan format for this M task/.test(r.out) && /Pattern: <recipe/.test(r.out) && /status: todo/.test(r.out), r.out);
+  fs.writeFileSync(planFile, planKeep);
 
   // ---------- hooks exactly as Claude Code runs them (exec form from kit/settings.json) ----------
   const kitSettings = JSON.parse(fs.readFileSync(path.join(KIT, 'settings.json'), 'utf8'));
@@ -335,7 +357,7 @@ try {
 
   // ---------- review gate, ledger, statusline ----------
   r = tool('check.mjs', ['--review-gate']);
-  check('review gate answers', /^REVIEW (REQUIRED|OPTIONAL)/m.test(r.out), r.out);
+  check('review gate answers, and names its base either way', /^REVIEW (REQUIRED|OPTIONAL)/m.test(r.out) && / vs [0-9a-f]{7,}/.test(r.out), r.out);
   write('app/src/big.ts', Array.from({ length: 450 }, (_, i) => `export const v${i} = ${i};`).join('\n'));
   const bigGate = tool('check.mjs', ['--review-gate']).out;
   fs.rmSync(path.join(repo, 'app', 'src', 'big.ts'));
@@ -415,6 +437,50 @@ try {
   const mineCfg = JSON.parse(fs.readFileSync(path.join(mine, '.solo', 'config.json'), 'utf8'));
   const mineLocal = fs.readFileSync(path.join(mine, 'CLAUDE.local.md'), 'utf8');
   check('two authors → shared mode: /ship manual, shared-repo rule in CLAUDE.local.md', mineCfg.shared === true && mineCfg.ship.mode === 'manual' && /This is a shared repo/.test(mineLocal) && /Mode: shared repo/.test(inst.stdout), JSON.stringify({ shared: mineCfg.shared, ship: mineCfg.ship }));
+  const wtNow = fs.readFileSync(path.join(mine, '.worktreeinclude'), 'utf8');
+  check(
+    'product.md and architecture.md start as stubs, imported by CLAUDE.local.md and copied into worktrees',
+    ['product.md', 'architecture.md'].every((f) => /Not written yet/.test(fs.readFileSync(path.join(mine, '.solo', f), 'utf8')) && mineLocal.includes(`@.solo/${f}`) && wtNow.includes(`.solo/${f}`)),
+    mineLocal.slice(0, 200),
+  );
+  // an older kit's CLAUDE.local.md: no imports, no triage rules, plus a line of your own. The installer adds the
+  // imports in place, never rewrites your lines, and offers the new Workflow as a suggestion to merge.
+  // without --force, older kit files stay in place; say so, or a new CLAUDE.local.md sits next to last month's skills
+  const specSkill = path.join(fakeHome, '.claude', 'skills', 'spec', 'SKILL.md');
+  const specNow = fs.readFileSync(specSkill, 'utf8');
+  fs.writeFileSync(specSkill, `${specNow}\n<!-- an older version -->\n`);
+  const noForce = spawnSync(process.execPath, [INSTALL, mine], { encoding: 'utf8', env });
+  check(
+    'a reinstall without --force names the kit files it kept and the command that updates them',
+    noForce.status === 0 && /older than this kit/.test(noForce.stdout) && /--user-only --force/.test(noForce.stdout) && fs.readFileSync(specSkill, 'utf8').includes('an older version'),
+    noForce.stdout.slice(-700),
+  );
+  fs.writeFileSync(specSkill, specNow);
+  const localFile = path.join(mine, 'CLAUDE.local.md');
+  const older = mineLocal
+    .replace(/^@\.solo\/(product|architecture)\.md\n/gm, '')
+    .replace(/^- Requirement changes during the work[\s\S]*?\n(?=- Done means)/m, '')
+    .replace('## Gotchas\n', '## Gotchas\n- my own rule\n');
+  fs.writeFileSync(localFile, older);
+  fs.writeFileSync(path.join(mine, '.solo', 'architecture.md'), '# Architecture\n- A1 MUST keep mine\n');
+  const upgrade = spawnSync(process.execPath, [INSTALL, mine, '--force'], { encoding: 'utf8', env });
+  const upgraded = fs.readFileSync(localFile, 'utf8');
+  check(
+    'an older CLAUDE.local.md gets the imports in place and the new Workflow as a suggestion, your lines kept',
+    upgrade.status === 0 &&
+      (upgraded.match(/^@\.solo\/product\.md$/gm) || []).length === 1 &&
+      (upgraded.match(/^@\.solo\/architecture\.md$/gm) || []).length === 1 &&
+      upgraded.includes('- my own rule') &&
+      !upgraded.includes('Requirement changes during the work') &&
+      fs.readFileSync(path.join(mine, '.solo', 'CLAUDE.local.suggested.md'), 'utf8').includes('Requirement changes during the work') &&
+      /CLAUDE\.local\.suggested\.md/.test(upgrade.stdout) &&
+      fs.readFileSync(path.join(mine, '.solo', 'architecture.md'), 'utf8').includes('A1 MUST keep mine') &&
+      g(mine, 'status', '--porcelain') === '',
+    upgrade.stdout.slice(-800) + upgraded.slice(0, 300),
+  );
+  const rerun = spawnSync(process.execPath, [INSTALL, mine, '--force'], { encoding: 'utf8', env });
+  check('a second run adds no duplicate imports', rerun.status === 0 && fs.readFileSync(localFile, 'utf8') === upgraded, rerun.stdout.slice(-400));
+  fs.writeFileSync(localFile, mineLocal); // back to the fresh install for the tests below
   fs.mkdirSync(path.join(mine, mineCfg.proto.dir, 'idea', 'v1'), { recursive: true });
   fs.writeFileSync(path.join(mine, mineCfg.proto.dir, 'idea', 'v1', 'a.ts'), 'export const p = 1;\n');
   check('prototype folder is invisible to git', g(mine, 'status', '--porcelain') === '', g(mine, 'status', '--porcelain'));
