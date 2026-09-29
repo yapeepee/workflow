@@ -20,13 +20,13 @@
 
 - **Anthropic**：Boris Cherny 說，讓 Claude 有辦法驗證自己的成果（跑測試、跑指令、開瀏覽器），品質可以提升 2 到 3 倍。Thariq Shihipar 整理內部數百個 skill 時指出，產品驗證類 skill 的效果最容易量測。Nicholas Carlini 讓 16 個平行的 Claude 寫 C compiler，得到的教訓是：驗證器必須近乎完美，否則 Claude 會解錯題目。
 - **為什麼有效**：模型的每一步都是推測。沒有回饋時，錯誤會一路累積到最後才被發現；有自動回饋時，錯誤在下一步就被抓到，這時修正成本最低。回饋來自工具而不是模型自評，所以結果可信。
-- **這裡的做法**：Claude 每結束一輪之前，Stop hook 會對它改過的檔案跑 lint、typecheck 和相關測試，失敗就擋下，只把錯誤行交給 Claude 修。`/check` 負責完整驗證，`/test-first` 讓另一個獨立的子代理先寫驗收測試。
+- **這裡的做法**：Claude 每結束一輪之前，Stop hook 會對它改過的檔案跑 lint、typecheck 和相關測試，失敗就擋下，只把錯誤行交給 Claude 修。`/check` 負責完整驗證；`/phase` 讓另一個獨立的子代理，先為每個 phase 寫驗收測試。
 
 ### 1.2 先計畫，再一次做完
 
 - **Anthropic**：Boris 大約 80% 的 session 從 plan mode 開始。計畫對了，Claude 通常可以一次做完。
 - **為什麼有效**：方向錯誤是最貴的錯誤。在計畫階段修正只要改幾行字；實作完才修正，就得重寫、重測、重新 review。
-- **這裡的做法**：`/spec` 先產生任務卡。M 以上的任務進 plan mode，`opusplan` 讓計畫階段使用 Opus。你核准計畫之後，Claude 才開始改程式。
+- **這裡的做法**：`/spec` 先產生任務卡。M 以上的任務進 plan mode，計畫寫成幾個短的 phase。你核准之後，Claude 才開始改程式，而且用 `/phase` 一次只做一個 phase：這個 phase 的測試、檢查、review 和 commit 都完成，才開始下一個。
 
 ### 1.3 小而持續更新的記憶
 
@@ -38,7 +38,7 @@
 
 - **Anthropic**：Boris 在 Meta 時的習慣是：同一種 review 意見出現三到四次，就寫成 lint rule。Anthropic 後來也把 code review 本身自動化了。
 - **為什麼有效**：文字規則靠模型每次都「記得遵守」，每次都可能失效；機械檢查每次都會執行，而且不花 token。但建立檢查也有成本，所以只值得為重複發生的問題建。
-- **這裡的做法**：`ledger` 記錄每一類錯誤發生的次數。同一類第三次出現時，`/learn` 會提示 ESCALATE，並提出具體的 lint rule、測試或 check step。機械檢查上線後，對應的文字規則就刪掉。
+- **這裡的做法**：`ledger` 記錄每一個具體錯誤（pattern）發生的次數。同一個錯誤第三次出現時，`/learn` 會提示 ESCALATE，並提出具體的 lint rule、測試或 check step。機械檢查上線後，對應的文字規則就刪掉。類別只用來看趨勢：只是同屬一類的錯誤，無法用同一個檢查抓到。
 
 這一條也修正了前身 harness 的方向：「用機制而不是模型自律來維持品質」是對的，但機制應該由錯誤次數觸發，而不是一開始就全部建好（見 §11）。
 
@@ -52,13 +52,13 @@
 
 - **Anthropic**：所有人的正式職稱都是 Member of Technical Staff。根據第三方整理的訪談，Claude Code 團隊有五種角色（Prototyper、Builder、Sweeper、Grower、Maintainer），成員每週依需要輪換。Cat Wu 也描述過 PM 會寫原型、設計師會 ship code。
 - **為什麼有效**：固定分工會產生交接成本和等待時間。一個人本來就身兼所有角色，真正的問題不是「誰來做」，而是「現在該切換到哪一種工作模式」。
-- **這裡的做法**：每個角色是一個指令，不是常駐的 agent：Prototyper 對應 `/proto`，Builder 對應 `/spec` → 實作 → `/ship`，Sweeper 對應 `/sweep`，Maintainer 對應 `/bugfix`，Grower 對應 `/retro` 和 `/refresh`。大多數指令設成只有你能呼叫，不呼叫時連描述都不佔 context。
+- **這裡的做法**：每個角色是一個指令，不是常駐的 agent：Prototyper 對應 `/proto`，Builder 對應 `/spec` → `/phase` → `/ship`，Sweeper 對應 `/sweep`，Maintainer 對應 `/bugfix`，Grower 對應 `/retro` 和 `/refresh`。大多數指令設成只有你能呼叫，不呼叫時連描述都不佔 context。
 
 ### 1.7 找出瓶頸，解決瓶頸
 
 - **Anthropic**：官方文章寫到，程式碼產量上升之後，人工 code review 成為新的瓶頸（原文引用 Amdahl's law）。Boris 描述的順序是：寫程式的瓶頸解決後，瓶頸移到 review，接著是可維護性與安全。Code Review 的數據顯示，1,000 行以上的 PR 有 84% 被找到問題，50 行以下的 PR 只有 31%。
 - **為什麼有效**：整體速度由最慢的那一段決定。一人團隊最慢的一段幾乎一定是你的注意力：看計畫、看 diff、判斷結果對不對。
-- **這裡的做法**：你要看的東西被縮小到高價值的部分：任務卡（做什麼、為什麼）、計畫（怎麼做）、測試名稱（行為）、驗證結果和截圖（證據）。只有改動大或碰到高風險路徑時才跑 `/code-review`，因為小改動的 review 回報低。每週的 `/retro` 只挑一個瓶頸來改。
+- **這裡的做法**：你要看的東西被縮小到高價值的部分：任務卡（做什麼、為什麼）、計畫（怎麼做）、測試名稱（行為）、驗證結果和截圖（證據）。code review 一次只審一個 phase 的 diff，而且只在改動大或碰到高風險路徑時才跑，因為小改動的 review 回報低。每週的 `/retro` 只挑一個瓶頸來改。
 
 ### 1.8 保持簡單，並隨著模型升級修剪
 
@@ -86,16 +86,18 @@
                                  │
    ┌─────────────────┬───────────┴──────────┬───────────────────────┐
    規劃層              執行層                   偵察層                   機械層（0 token）
-   Opus               Sonnet                  Haiku                   hooks + 腳本
-   plan mode          主 session 實作          scout 子代理             Stop 驗證、格式化
-   /spec  /refresh    test-author 子代理        讀檔、找位置、整理事實     token-guard、ledger
-   /code-review       prototyper 子代理                                  statusline（額度）
+   Opus               預設模型（Max：Opus）     Sonnet                  hooks + 腳本
+   plan mode          主 session 逐 phase 實作  scout 子代理             Stop 驗證、格式化
+   /spec  /refresh    test-author、security-   只回報位置和搜尋，        token-guard、ledger
+                      reviewer（沿用主模型）     不下結論                 statusline（額度）
+                      prototyper（Sonnet）
    ─────────────────────────────────────────────────────────────────────────────
    記憶層：~/.claude/CLAUDE.md · CLAUDE.local.md · .solo/rules · skills（按需載入）
           · .solo/tasks（任務狀態）· .solo/ledger.json（錯誤次數）· .solo/decisions.md
+          · .solo/security.md（威脅模型）
 ```
 
-「強模型在編譯期、弱模型在執行期」是前身 harness 的原則（見 §11），在這裡升格成模型分工的主軸：Opus 做少量但決定方向的工作（任務卡、計畫、規則修剪），Sonnet 做大量實作，Haiku 做便宜的偵察，最常執行的判定交給不花 token 的腳本。
+「強模型在編譯期、弱模型在執行期」是前身 harness 的原則（見 §11），在這裡變成模型分工的依據：需要判斷的工作（計畫、實作、測試、安全審查）都用預設的強模型，只有搜尋和丟棄式原型用 Sonnet，最常執行的判定交給不花 token 的腳本。早期版本寫死 `opusplan`（Sonnet 實作）和 Haiku 偵查，因為當時 Opus 貴很多；這個前提已經不成立（見 §6.1、§17）。
 
 | Anthropic 的做法 | 一人版的做法 |
 |---|---|
@@ -103,7 +105,7 @@
 | 統一職稱，角色每週輪換 | 你身兼所有角色；角色是指令，不是常駐 agent |
 | 共用 CLAUDE.md，每週更新 | `CLAUDE.local.md` 控制在 150 行內，由 `/learn` 提出更新 |
 | 同一種意見重複三到四次就寫成 lint rule | ledger 第三次出現就提示 ESCALATE |
-| Code Review（多 agent，每次約 15 到 25 美元） | 內建 `/code-review medium`，只在大改動或高風險路徑執行 |
+| Code Review（多 agent，每次約 15 到 25 美元） | 內建 `/code-review medium`，一次只審一個 phase 的 diff，只在改動大或碰到高風險路徑時執行 |
 | auto mode、分類器、容器化 | Max 預設 auto mode，加上 deny 和 ask 規則 |
 | 3 萬個 agent 加上監控 | 同時最多 2 到 3 個 session，statusline 顯示額度 |
 | R&D Automation Index 等內部指標 | `/retro` 的每週指標（不計算程式碼行數） |
@@ -115,25 +117,22 @@
 | 步驟 | 執行者與模型 | 你要做的事 | 成本控制 |
 |---|---|---|---|
 | 1. `/spec`（在新 session 執行） | Opus | 回答產品問題（S/M 最多 3 題；L 或模糊的需求會逐題訪談），確認驗收條件 | context 很小，這時切換模型幾乎沒有代價 |
-| 2. plan mode（M 以上） | Opus（`opusplan`） | 讀計畫，核准或修正 | 大範圍探索交給 scout（Haiku） |
-| 3. `/test-first`（行為不單純時） | test-author（Sonnet，獨立 context） | 看測試名稱和斷言：這是槓桿最高的 review | 出題者和答題者分開 |
-| 4. 實作 | Sonnet | 原則上不用盯 | 每次編輯後格式化（共用 repo 只保留改動附近的格式化）；Stop hook 自動驗證 |
-| 5. `/check` | Sonnet 加 runner | 看每個步驟的結果行 | runner 只回傳錯誤行和 log 路徑 |
-| 6. `/ship` | Sonnet，必要時加內建 `/code-review` | 看 `ship.md`（檔案清單、commit 計畫、PR 說明與證據）和高風險路徑的 diff；共用 repo 由你自己 commit | 由腳本決定要不要 review |
-| 7. `/learn` | Sonnet | 核准記憶和規則的變更 | 每次最多 5 條 |
+| 2. plan mode（M 以上） | Opus | 讀 phase 計畫（約 150 行以內），核准或修正 | 大範圍探索交給 scout（Sonnet，只回報位置和搜尋） |
+| 3. `/phase`（每個 phase 一次） | test-author 先寫這個 phase 的測試，主 session 實作（都用預設模型） | 看測試名稱和斷言：這是槓桿最高的 review；共用 repo 由你自己 commit | Stop hook 自動驗證；review gate 只量這個 phase 的 diff |
+| 4. `/ship`（最後一個 phase 之後） | 主 session 加 runner；`/secure` 由 security-reviewer 在全新的 context 審整個分支 | 看安全審查報告、`ship.md` 和高風險路徑的 diff | code review 已經在各個 phase 做過；安全審查每個任務一次 |
+| 5. `/learn` | 預設模型 | 核准記憶和規則的變更 | 每次最多 5 條 |
 
-context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 再 `/clear`。新 session 開始時，SessionStart hook 會自動載入任務卡和進度。
+context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 再 `/clear`。新 session 開始時，SessionStart hook 會自動載入任務卡、目前的 phase 和進度。
 
 ### 範例：訂單列表加上日期區間篩選（Angular + ASP.NET Core）
 
 1. 在終端機執行 `claude -w order-filter`。Claude Code 會建立一個獨立的 worktree 和分支。
 2. `/spec 訂單列表加上日期區間篩選`。Claude 只問一個產品問題：「區間留白時要顯示全部，還是最近 30 天？」你回答後，它寫出有四條驗收條件的任務卡。
-3. 按 Shift+Tab 進 plan mode。Opus 提出計畫：API 加上 from、to 參數，EF Core 查詢，Angular 的日期元件和 signal 狀態。你核准後，計畫存成 `plan.md`。
-4. `/test-first`。test-author 寫出 .NET 端點測試和 Angular 元件測試，目前全部失敗。你花三分鐘看測試名稱，確認它們描述的是你要的行為。
-5. Sonnet 開始實作。每一輪結束前，Stop hook 對改過的 `.cs` 跑 `dotnet build`，對改過的 Angular 檔案跑 eslint 和 `ngc --noEmit`（連 template 一起做型別檢查），失敗就讓 Claude 自己修。
-6. `/check`。`ng test`、`ng build`、`dotnet test` 全部通過；`snap.mjs` 截下桌面版和手機版的畫面。
-7. `/ship`。review gate 算出改動 180 行、沒有碰到高風險路徑，所以跳過 review。這是團隊 repo，所以 Claude 不動 git，只把檔案清單、commit 計畫和附上驗證結果與截圖路徑的 PR 說明寫進 `.solo/tasks/order-filter/ship.md`，由你自己 commit、push、開 PR。在個人 repo 可以用 `/ship pr`，Claude 會在 commit 和 push 前各問你一次。
-8. `/learn`。Claude 記下一條教訓：「EF 的日期比較要先統一成 UTC」，歸類為 `api-contract`，並提議在 `.solo/rules/dotnet.md` 加一行規則。
+3. 按 Shift+Tab 進 plan mode。Opus 提出三個 phase：API 加上 from、to 參數和 EF Core 查詢；Angular 的日期元件和 signal 狀態；串接和端到端驗證。你核准後，計畫存成 `plan.md`。
+4. `/phase`（第 1 個）。test-author 只寫 phase 1 的 .NET 端點測試，目前全部失敗；你花兩分鐘看測試名稱。實作時，每一輪結束前 Stop hook 對改過的 `.cs` 跑 `dotnet build`，失敗就讓 Claude 自己修。review gate 量到這個 phase 改了 120 行、沒有碰到高風險路徑，所以跳過 code review。這是團隊 repo，所以 Claude 把這個 phase 的 commit 寫進 `ship.md`，由你自己 commit。
+5. `/phase`（第 2、3 個）。同樣的迴圈；Angular 的檔案由 Stop hook 跑 eslint 和 `ngc --noEmit`（連 template 一起做型別檢查）。
+6. `/ship`。`ng test`、`ng build`、`dotnet test` 全部通過。`/secure` 由 security-reviewer 審整個分支：它追蹤新的端點（誰能呼叫、查詢是不是只回傳呼叫者有權看的訂單），列出驗證過的規則，沒有發現。`snap.mjs` 截下桌面版和手機版的畫面；PR 說明和量測紀錄寫進 `ship.md`，由你自己 push、開 PR。在個人 repo 可以用 `/ship pr`，Claude 會在 commit 和 push 前各問你一次。
+7. `/learn`。Claude 記下一條教訓：「EF 的日期比較要先統一成 UTC」，類別 `api-contract`、pattern `ef-utc-dates`，並提議在 `.solo/rules/dotnet.md` 加一行規則。
 
 ## 4. 記憶與知識的分層
 
@@ -146,14 +145,15 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 | 你的專案層 | `CLAUDE.local.md` | 每個 session | 指令、目錄地圖、流程、Gotchas | linter 能檢查的規則 |
 | 框架規則 | `.solo/rules/*.md`（由 `CLAUDE.local.md` 匯入） | 每個 session | 框架和語言的規則 | 全專案通用的規則 |
 | 流程 | `~/.claude/skills/*/SKILL.md` | 被呼叫時；只限使用者呼叫的 skill 連描述都不載入 | 做事的步驟 | 專案事實 |
-| 任務狀態 | `.solo/tasks/<slug>/` | SessionStart 自動注入任務卡和進度 | spec、plan、progress、證據 | 長期知識 |
-| 錯誤次數 | `.solo/ledger.json` | 用 CLI 查詢 | 每類錯誤的次數與最近一條教訓 | 規則本身 |
+| 任務狀態 | `.solo/tasks/<slug>/` | SessionStart 自動注入任務卡、目前的 phase 和進度 | spec、plan、progress、證據 | 長期知識 |
+| 錯誤次數 | `.solo/ledger.json` | 用 CLI 查詢 | 每個錯誤（pattern）的次數、每類的趨勢與最近一條教訓 | 規則本身 |
+| 威脅模型 | `.solo/security.md` | `/secure` 審查時讀取 | 資產、角色、信任邊界、進入點、必須成立的規則、踩過的坑 | 通用的資安建議 |
 | 架構決策 | `.solo/decisions.md` | `/spec` 規劃前讀取 | 決定、理由、放棄的選項 | 實作細節 |
 | 自動記憶 | `~/.claude/projects/<project>/memory/` | 每個 session 載入 MEMORY.md 前 200 行 | Claude 自己記的便條 | 需要審核的規則 |
 
 自動記憶是 Claude Code 內建的功能。它和 `/learn` 的分工是：自動記憶是 Claude 隨手記的便條，`/learn` 產生的是經過你核准的正式規則。`/refresh` 會提醒你用 `/memory` 檢查自動記憶的大小。
 
-套件常駐在 context 的內容（`CLAUDE.local.md` 模板、匯入的框架規則、兩個可自動觸發的 skill 描述、三個子代理描述）合計約 1,300 tokens 以內。作為對照，Claude Code 團隊自己的 CLAUDE.md 約 2,500 tokens。
+套件常駐在 context 的內容（`CLAUDE.local.md` 模板、匯入的框架規則、三個可自動觸發的 skill 描述、四個子代理描述）合計約 1,500 tokens 以內。作為對照，Claude Code 團隊自己的 CLAUDE.md 約 2,500 tokens。
 
 ## 5. 驗證與品質
 
@@ -164,10 +164,11 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 | PostToolUse hook | 每次編輯檔案 | 格式化該檔案；選用的 token-guard | 通常 1 到 2 秒 | 沒有違規就是 0 |
 | Stop hook | 每一輪結束，而且這一輪有編輯 | 對改過的檔案跑 lint、typecheck、相關測試；test guard 比對測試有沒有變弱 | 數秒到數十秒 | 失敗才回傳錯誤行 |
 | `/check` | 宣稱完成之前 | 完整 lint、測試、build，UI 截圖 | 分鐘級 | 只回傳摘要 |
-| `/ship` | 出貨之前 | 完整檢查、test guard，加上條件式 `/code-review` 和 `/security-review`；改動太大時建議拆 PR | 分鐘級 | review 只在需要時跑 |
+| `/phase` | 每個 phase | 這個 phase 的測試和快速檢查；review gate 只量這個 phase 的 diff，大或有風險才 `/code-review` | 視 phase 大小 | review 只在需要時跑 |
+| `/ship` | 每個任務一次 | 完整檢查、test guard、還沒 review 過的改動、`/secure`（整個分支的安全審查）、比對架構決策 | 分鐘級 | 安全審查每個任務一次 |
 | `/sweep` | 每週 | 死碼、依賴、TODO | 視專案而定 | 候選清單最多 20 項 |
 
-### 5.2 讓檢查可信又省 token 的七個機制
+### 5.2 讓檢查可信又省 token 的八個機制
 
 1. **摘要輸出。** check runner 只把錯誤行（附一行上下文）和 log 路徑交給 Claude，其餘輸出寫進 `.solo/logs/`。Claude 需要更多資訊時再自己讀 log。
 2. **重試上限。** Stop hook 最多連續擋三輪。第三輪之後還是失敗，就讓 Claude 停下，並暫停檢查到下一次編輯，避免修不好的錯誤一直燒額度。
@@ -176,6 +177,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 5. **token-guard 只看改動的行。** 它用 `git diff HEAD` 找出和 HEAD 不同的行，只回報這些行上的違規。舊檔案原有的寫死色碼不算在這次編輯頭上，Claude 也就不會順手去改一堆和任務無關的地方。要稽核整個專案時，手動執行 `node .solo/engine/token-guard.mjs <files>`。
 6. **分辨「環境壞掉」和「程式碼有錯」。** `node_modules` 沒裝好或只裝一半時，每個檢查都會出現 `Cannot find module '...node_modules...'`。這不是改程式碼能修好的；如果照常擋下 Claude，它可能去改程式碼，或執行 `npm install` 改寫團隊的 lockfile。所以 runner 把這類失敗標成 `ENV`，並附上正確的還原指令（`npm ci`、`pnpm install --frozen-lockfile`、`dotnet restore`）；只有環境錯誤時，Stop hook 不擋 Claude，改成直接告訴你該執行哪個指令；`--update-baseline` 也不會把環境錯誤記成已知問題。安裝時就會檢查直接依賴的入口檔是否存在，提早發現問題；新增或移除依賴的指令都列在 ask 規則裡。
 7. **檢查本身不能改檔案。** 團隊的 lint script 常帶著 `--fix`（實際在一個團隊 repo 遇過），照原樣執行就會改寫團隊的檔案。所以安裝程式遇到會改檔案的 script（`--fix`、`--write`、`-u`）時不照原樣執行：單一的 eslint 或 ng lint 呼叫會拿掉 `--fix` 再執行，其他情況改用單純的 `eslint .`。runner 另外在每個步驟前後比對被追蹤檔案相對 HEAD 的 diff，步驟執行後有檔案不一樣，那一步就算失敗並列出被改的檔案（`CHANGED FILES`），Stop hook 也會把它交給你，而不是擋下 Claude。同一類的防護還有：測試執行器連測試都載入不了（例如 Karma 的 `Found 1 load error`）時，代表一個測試都沒跑，這種結果不能記進 baseline，否則這一步會在零個測試的情況下變綠燈；報告會標成 `SUITE DID NOT RUN`，可以先用 `disabledSteps` 暫時停用。
+8. **看得到成本。** Stop hook 每一輪都會跑，所以 PASS 訊息會列出每一步花了幾秒。某一步每輪都很慢（例如超過 20 秒），就把它從 `stop` 移到 `full`，只在 `/check` 和 `/ship` 時跑。
 
 ### 5.3 規則升級的階梯
 
@@ -188,23 +190,39 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 
 規則從低的階梯開始，只有在 ledger 顯示它重複發生時才往上升。升到第四階之後，第二、三階的文字就刪掉。
 
+### 5.4 安全審查：一次仔細的整體審查
+
+內建的通用安全掃描在一個真實專案上跑了十多次，全部沒有發現；那個專案真正的授權漏洞（一個沒被受保護 layout 包住、不用登入就進得去的畫面）反而是 code review 抓到的。問題不在跑得不夠多，而在它不知道這個專案的攻擊面。`/secure` 改成這樣：
+
+- **專案自己的威脅模型**（`.solo/security.md`）：資產、角色、信任邊界、所有進入點、必須成立的規則（以及它有沒有機械檢查）、踩過的坑。第一次執行時從程式碼整理出來，你核准後才寫入；之後每次審查都補上缺的部分。
+- **一個 reviewer，看整個分支**：security-reviewer 在全新的 context 裡，先列出這次改動新增或碰到的每個進入點和信任邊界，包括改動依賴、或因此暴露的既有程式碼；再逐一從頭追到尾：誰能呼叫、檢查在伺服器還是只在 client、碰到哪些資料、回傳或存下什麼；最後找只在組合時才成立的攻擊，例如新的 endpoint 加上既有的查詢、某個角色碰到另一個角色的資料、跨步驟的 replay 和 race。
+- **刻意不拆開審**：按漏洞類別或檔案拆成幾個小 review，每個 reviewer 只看自己那一片，只在組合處出現的漏洞就沒有人負責；清單上沒有的類別也完全不會被審。拆開唯一的好處是注意力集中，這裡改用「以進入點組織審查」和「只對無法確認的高風險點追加深入審查」來達成。
+- **證據**：每個發現都要附上具體攻擊（送什麼請求、哪一行放行），寫不出來就不算發現；報告也要列出驗證過、確認成立的規則，所以 0 個發現代表「這些都查過了」。主 session 會再逐一嘗試推翻每個發現。
+- **重複的規則交給機器**：同一條規則被違反三次（ledger 的 pattern），就寫成檢查腳本，讓審查的注意力留給全貌。
+
+代價：強模型每個任務讀一次整個分支；分支很大時注意力會變薄，所以任務要切小（phase 迴圈），重複的規則要機械化。時機是 `/ship` 時跑一次；想提早看時，隨時可以手動跑 `/secure`，它每次都看目前為止的全貌。
+
 ## 6. 算力預算（Max 5x）
 
-### 6.1 事實（依 2026-09 的官方文件）
+### 6.1 事實（依 2026-09 的官方文件；模型與價格在 2026-09-29 重新查證）
 
-- 官方成本文件寫明，Sonnet 能處理大部分 coding 工作，成本比 Opus 低；Opus 留給複雜的架構決策和多步驟推理。Max 方案的預設模型是 Opus 5.5。套件把專案的預設模型設成 `opusplan`：plan mode 用 Opus，其餘時間自動切換成 Sonnet。
+- Claude Code 對 Pro、Max、Team 的預設模型是 Opus 5.5，effort 預設 medium。套件不再指定模型，所以就用這個預設。
+- `opusplan`：plan mode 用 Opus，其他時候用 Sonnet（2026-09-28 起是 Sonnet 5.5）。額度吃緊時可以用 `/model opusplan`。
+- API 價格（每百萬 token，輸入／輸出）：Fable 5.1 $10/$50、Opus 5.5 $4/$20、Sonnet 5.5 $2/$10、Haiku 4.5 $1/$5（context 200K，仍是最新的 Haiku）。訂閱方案的額度怎麼換算，官方沒有公布，API 價格只能當方向參考。
+- 官方建議多數工作先用 Opus 5.5；需要高強度推理、長時間的 agentic 工作，或 Opus 提高 effort 仍然不夠時，才用 Fable 5.1。
+- 內建的 Explore 子代理已經改成沿用主 session 的模型（上限 Opus），不再固定用 Haiku。
 - 訂閱方案的用量以 5 小時和每週兩個視窗計算。statusline 直接顯示 context 用量、兩個視窗的用量百分比，以及 5 小時視窗的重置時間。
 - 訂閱方案的 prompt cache 壽命約一小時。超過一小時沒有互動，第一則訊息就要重新處理整段 context。`/compact` 本身是一次大型請求，`/clear` 不消耗額度。
 - 切換模型會讓 prompt cache 失效（advisor 例外）。所以換成較便宜的模型只適合在全新的 context 裡做，例如子代理或新 session。長對話中途把主模型換成 Haiku，它得重新讀整段沒有快取的 context，可能比繼續用已快取的 Sonnet 還貴。
-- Fable 在部分方案會計入 usage credits（額外付費）。ultracode、`/batch` 和 agent teams 都會大量消耗 token；官方文件寫到，teammates 在 plan mode 運作時，agent teams 的用量約為一般 session 的 7 倍。
+- ultracode、`/batch` 和 agent teams 都會大量消耗 token；官方文件寫到，teammates 在 plan mode 運作時，agent teams 的用量約為一般 session 的 7 倍。
 
 ### 6.2 每日紀律
 
-1. **模型分工**：預設 `opusplan`，scout 固定用 Haiku，`/spec` 和 `/refresh` 在新 session 裡用 Opus。同一個問題卡住兩次，才開 `/advisor opus`（Sonnet 繼續做，Opus 只在決策點給建議）或 `/model opus`。
+1. **模型**：用 Claude Code 的預設（Max 上是 Opus 5.5，effort medium）；需要深度的 skill 自己設 effort（`/spec`、`/bugfix`、`/secure` 是 high）。額度吃緊時用 `/model opusplan`。同一個問題卡住兩次，先提高 effort（xhigh），還不夠才換更強的模型。
 2. **Context**：用量到 50% 到 60% 時，先 `/handoff` 再 `/clear`。離開超過一小時，回來先 `/clear`。和任務無關的小問題用 `/btw` 問，不讓它進入對話歷史。
 3. **並行**：同時最多 2 個實作 session，各自在自己的 worktree；另外可以有 1 個輕量 session 做 spec 或 review。
 4. **視窗節奏**：需要 Opus 的規劃放在 5 小時視窗的前段。5 小時視窗超過 80% 時，改做 review、手寫程式或學習模式。每週視窗在週中就超過 70% 時，改成單線作業，也不做 `/proto`。
-5. **預設避免**：ultracode、`/batch`、agent teams、Fable、每次 push 都 review、預設開啟 advisor。
+5. **預設避免**：ultracode、`/batch`、agent teams、拿 Fable 當預設、每次 push 都 review、預設開啟 advisor。
 6. **量測**：用 `/usage` 的 attribution 看哪個 skill 或子代理最花額度。每月跑一次 `/insights` 看跨 session 的摩擦點，但它本身也會消耗額度。
 
 ## 7. 並行、worktree 與私有安裝
@@ -232,6 +250,7 @@ hook 的指令是一小段啟動程式：從 `CLAUDE_PROJECT_DIR`（session 開�
 私有安裝保證套件的檔案不進版控，但套件的行為還是可能碰到團隊看得到的東西：`/ship` 會 commit 和 push、`/sweep` 會 commit、格式化工具可能重排整個檔案、token-guard 會建議在程式碼裡加註解。所以安裝程式會看最近 200 個 commit：只要有不是你（依 `git config user.email` 判斷）的作者，就在 `.solo/config.json` 寫入 `"shared": true`，只有一位同事在寫的專案也算。新電腦還沒設定 `user.email` 時，所有作者都算別人，結果偏向保守。也可以用 `--shared`、`--personal` 直接指定。共用 repo 裡：
 
 - `/ship` 預設 `manual`：檢查和 review 照跑，但只把檔案清單、commit 計畫和 PR 說明寫進 `.solo/tasks/<slug>/ship.md`，不執行任何會寫入的 git 指令。`/ship commit`、`/ship pr`、`/ship direct` 是明確的要求，而且 commit、push 仍然會先問你。
+- `/phase` 在每個 phase 結束時，只把這個 phase 的 commit 寫進 `ship.md`，請你 commit 之後才做下一個 phase。
 - `/sweep` 不 commit、不切分支，把每組刪除和建議的 commit 訊息記在 `.solo/`。
 - PostToolUse hook 在格式化前後各算一次「這個檔案相對 HEAD 改到哪幾行」（兩次都以 HEAD 的行號計算，所以可以直接比較）。格式化如果改到距離這次改動超過 3 行、原本沒人動過的行，就把檔案還原成格式化前的內容。格式本來就一致的檔案照常格式化；格式不一致的舊檔案，不會因為改一行就變成整個檔案的 diff。這兩種情況都用真的 Prettier 3 驗證過。
 - token-guard 不要求加 `token-guard-ignore` 註解；刻意保留的值在同一個 session 只回報一次。
@@ -263,13 +282,14 @@ Max 方案預設是 auto mode，由分類器審查每個動作。套件的 setti
 
 | 頻率 | 動作 | 目的 |
 |---|---|---|
-| 每個任務結束 | `/learn` | 記錄教訓，決定放在哪一層，必要時升級成機械檢查 |
+| 每個任務結束 | `/learn` | 記錄教訓並標出是哪一個錯誤（pattern），決定放在哪一層；同一個錯誤第三次出現時升級成機械檢查 |
+| 每個任務的 `/secure` | 把新發現的進入點、規則和踩過的坑寫回 `.solo/security.md` | 讓威脅模型跟著專案長大 |
 | 每週一 | `/retro` | 從 git 紀錄和 ledger 找出一個瓶頸，選一個實驗 |
 | 每週五 | `/sweep` | 刪除死碼和沒用的依賴 |
 | 新模型或大改版 | `/refresh` | 刪掉已經不需要的補丁規則 |
 | 新寫的 skill 在一個專案證明有用 | 整理進 `~/.claude/skills` | 讓所有專案都能用 |
 
-`/retro` 的指標是已出貨的任務數、修正或回退的 commit 數（重工的訊號），以及 ledger 裡最常出現的錯誤類別。指標刻意不包含程式碼行數：Anthropic 自己也說明，每位工程師 8 倍的合併量是以行數計算，「幾乎肯定誇大了」實際的生產力提升。
+`/retro` 的指標是已出貨的任務數、每個任務從開始到出貨的時間（`ship.md` 的量測紀錄）、出貨前修掉的 review 與安全發現、出貨後才發現的 bug（ledger 裡來源是 `escaped` 的紀錄）、修正或回退的 commit 數（重工的訊號），以及一再重複的錯誤。指標刻意不包含程式碼行數：Anthropic 自己也說明，每位工程師 8 倍的合併量是以行數計算，「幾乎肯定誇大了」實際的生產力提升。
 
 ## 10. 人的能力
 
@@ -288,7 +308,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 
 | v3 的元件 | 處理方式 | 在這裡的位置 | 理由 |
 |---|---|---|---|
-| 「強模型在編譯期、弱模型在執行期」 | 保留並升格 | 模型分工：`opusplan`、scout（Haiku）、零 token 的腳本 | 和 Anthropic 的 opusplan 與 advisor 是同一個方向 |
+| 「強模型在編譯期、弱模型在執行期」 | 保留，並依模型價格調整 | 模型分工：需要判斷的工作用預設的強模型（計畫、測試、安全審查），搜尋和原型用 Sonnet，最常執行的判定交給零 token 的腳本 | 分工的依據是判斷有多重要，不是寫死的價目表 |
 | token enforcement（token-lint hook，含 Angular 樣式繞道偵測） | 重塑 | `token-guard.mjs`，選用 | 改成零依賴的 Node 腳本；支援 Tailwind v4 arbitrary value；custom property 視為 token 定義；HTML 裡的 `<style>` 當 CSS 檢查；編輯時只看改動的行；`assets/` 預設排除；ignore 註解不怕 Prettier 搬動 |
 | verdict ledger | 重塑 | `.solo/ledger.json` 加上 ESCALATE | 用途從「記錄判決」改成「決定什麼時候機械化」 |
 | golden fixtures | 保留為升級選項 | `/learn` 的機械檢查選項之一 | 輸出穩定的功能，用 golden 或 snapshot 測試最省事 |
@@ -321,16 +341,18 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - **baseline 比對是啟發式的。** 它以錯誤訊息的文字為 key，所以同一個檔案裡訊息完全相同的新錯誤，會被當成舊錯誤。
 - **Bash 權限規則是文字比對，不是安全邊界**（見 §8）。
 - **換行必須是 LF。** 安裝程式用以 `\n` 錨定的 regex 解析模板。git clone 由 `.gitattributes` 保證 LF；用其他方式複製、被轉成 CRLF 的檔案，會讓規則模板的 front matter 剝不乾淨。
-- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-28 在 Windows 11 原生通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 69 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
+- **安全審查的成本。** `/secure` 讓強模型每個任務讀一次整個分支；分支很大時注意力會變薄。對策是把任務切小（phase）、把重複的規則機械化。
+- **phase 迴圈和 `/secure` 還沒在真實任務上量過。** 它們是從一個真實專案的紀錄推出來的（見 §17），效果要看 `/ship` 的量測紀錄和 `/retro`。
+- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-28 在 Windows 11 原生通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 75 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
 - **能省多少額度，目前沒有量化數據。** 請用 `/usage` 的 attribution 和 statusline 自己量。
 - **Claude Code 變化很快。** 套件用到的功能多在 v2.1.2xx 之後才有，安裝前先 `claude update`。
 - **Anthropic 公布的數字**（80% 的合併程式碼、每人 8 倍的合併量、200% 的產出成長）多數是自我報告，而且以行數計算。這個架構不追求這些數字，也不用程式碼行數當指標。
 
 ## 14. 四週導入順序
 
-1. **第一週，只用核心**：安裝套件，只開一個 session，使用 `/spec`、plan mode、Stop hook、`/check`、`/handoff` 和 `/learn`，觀察 statusline 上的額度變化。
-2. **第二週，加入出貨流程**：開始用 `/ship` 和 review gate，用 worktree 同時跑兩個任務，執行一次 `/fewer-permission-prompts`。
-3. **第三週，加入進階工具**：開始用 `/test-first`、`/proto` 和 `/bugfix`；UI 專案開啟 token-guard，並設定 snap 截圖。
+1. **第一週，只用核心**：安裝套件，只開一個 session，使用 `/spec`、plan mode、`/phase`、Stop hook、`/check`、`/handoff` 和 `/learn`，觀察 statusline 上的額度變化。
+2. **第二週，加入出貨流程**：開始用 `/ship`（第一次 `/secure` 會和你一起建立威脅模型），用 worktree 同時跑兩個任務，執行一次 `/fewer-permission-prompts`。
+3. **第三週，加入進階工具**：開始用 `/proto` 和 `/bugfix`；UI 專案開啟 token-guard，並設定 snap 截圖。
 4. **第四週，開始維護迴圈**：第一次 `/retro`、`/sweep` 和 `/refresh`，刪掉沒用到的東西，把已經證明有用的 skill 搬到個人層。
 
 ## 15. 實測：一個真實的 Angular 22 專案
@@ -357,7 +379,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 
 1. 開啟 token-guard，但 page builder 這類專案把 `styleBinding` 關掉：`"tokenGuard": { "enabled": true, "rules": { "styleBinding": false } }`。因為只檢查改動的行，舊違規不會干擾日常工作。
 2. 補上 ESLint（`ng add angular-eslint`），再用 `--reconfigure` 重跑安裝程式，Stop 階段就會加上 lint。
-3. 補上測試框架。沒有測試時，檢查只能證明「編譯得過」，`/test-first` 也無法使用。
+3. 補上測試框架。沒有測試時，檢查只能證明「編譯得過」，`/phase` 也無法先寫測試。
 
 ## 16. 比對其他 workflow 之後加入的五項
 
@@ -370,6 +392,18 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 5. **結構與行為分開，改動太大就拆**。Kent Beck 的 Tidy First 規則是結構改動（重新命名、搬移、抽出）和行為改動分開提交，而且結構先做；DORA 2025 把「小批次」和「良好的版本控制習慣」列為讓 AI 發揮效果的七項能力之二。所以 `ship.md` 的 commit 計畫分成結構和行為兩組；改動達到 `review.splitLines`（預設 400 行）時，review gate 會印出 `SPLIT SUGGESTED`，`/ship` 先提出拆分方式再繼續。
 
 刻意不採用的有五項，理由都是成本或風險：Ralph loop（Huntley 自己說不會用在既有 codebase）；Superpowers 為每個小任務各開一個 subagent 再逐一 review 的模式（Max 5x 撐不住）；spec-kit 和 Kiro 這類完整的 spec-driven 工具（Böckeler 用 Kiro 修一個小 bug 就得到 16 條驗收條件）；同時開 3 到 8 個 agent（瓶頸會變成 review）；讓 agent 自己 commit（和共用 repo 的規則衝突）。
+
+## 17. 第一個真實專案之後的修正（2026-09）
+
+一個真實專案（手機 app 加 .NET API）用這套套件做完了四個里程碑。它的 `.solo` 紀錄顯示流程很慢，但原因不是 review 本身，而是下面五件事，每一件都改成了一個機制：
+
+1. **任務太大。** plan 有 24–54 KB；`/test-first` 一次寫完所有 phase 的測試，要做完五個 phase 才第一次編譯得過；最後才出貨，只好切成四刀，而 review gate 以 `origin/main` 為基準，每一刀都把前面審過的程式再審一次。→ `/phase` 一次只做一個 phase，各自測試、review、commit；review gate 支援 `--base HEAD`；plan 限約 150 行；SessionStart 帶入目前的 phase。
+2. **通用的安全掃描沒有作為。** 跑了十多次都沒有發現，真正的授權漏洞是 code review 抓到的。→ `/secure`（§5.4）：以專案的威脅模型為全貌，一次仔細審整個分支。
+3. **scout 漏算，計畫卻建立在它的摘要上。** 同一個檔案裡有 2 處，Haiku 只找到 1 處。→ scout 改用 Sonnet，只回報位置和實際跑過的搜尋，不下結論；數量和「沒有別的地方用到」由主模型自己 grep 確認。
+4. **ledger 誤觸發。** ESCALATE 在 5 個類別觸發，只有 1 個真的變成機械檢查；其餘都是同屬一類、但不是同一種錯誤。→ 升級改成計算 pattern（同一個錯誤），類別只看趨勢。
+5. **模型寫死在過時的價目表上。** `opusplan` 讓實作跑在 Sonnet 上，前提是 Opus 貴很多，所以前幾個里程碑很可能是 Sonnet 5 寫的。Opus 5.5 降價、Sonnet 5.5 推出之後，這個前提就不成立了。→ 套件不再指定模型，test-author 和 security-reviewer 沿用主模型，重新安裝時會移除舊的 `opusplan`。
+
+另外，Stop hook 每一輪的秒數從沒被記錄過，所以 PASS 訊息現在會列出每一步的秒數。判斷這些修正有沒有效，要看 `/ship` 的量測紀錄和 `/retro`，不靠感覺：METR 2025 年的研究裡，開發者覺得自己快了 20%，實際上慢了 19%。
 
 ## 參考來源
 
@@ -387,4 +421,5 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - [Building Claude Code with Boris Cherny（Pragmatic Engineer）](https://newsletter.pragmaticengineer.com/p/building-claude-code-with-boris-cherny)
 - [Anthropic's Claude Code team has 5 roles（Aakash Gupta，第三方整理）](https://aakashgupta.medium.com/anthropics-claude-code-team-has-5-roles-and-zero-job-titles-bf4860a389fc)
 - §16：[Best practices for Claude Code](https://code.claude.com/docs/en/best-practices)、[Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence)、[Kent Beck: Augmented Coding](https://newsletter.kentbeck.com/p/augmented-coding-beyond-the-vibes)、[HumanLayer: Advanced Context Engineering](https://www.humanlayer.dev/blog/advanced-context-engineering)、[Beads Best Practices](https://steve-yegge.medium.com/beads-best-practices-2db636b9760c)、[DORA 2025](https://dora.dev/dora-report-2025/)、[Mitchell Hashimoto: My AI Adoption Journey](https://mitchellh.com/writing/my-ai-adoption-journey)、[OpenAI: Harness engineering](https://openai.com/index/harness-engineering/)、[Böckeler: Understanding Spec-Driven Development](https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html)、[Huntley: Ralph](https://ghuntley.com/ralph/)、[obra/superpowers](https://github.com/obra/superpowers)、[METR 2026 update](https://metr.org/blog/2026-02-24-uplift-update/)
+- §6、§17：[Models overview](https://platform.claude.com/docs/en/models/overview)、[Pricing](https://platform.claude.com/docs/en/about-claude/pricing)、[claude-code #72940（Explore 沿用主模型）](https://github.com/anthropics/claude-code/issues/72940)、[Spending your effort](https://claude.dev/blog/spending-your-effort/)
 - Claude Code 官方文件：[hooks](https://code.claude.com/docs/en/hooks)、[skills](https://code.claude.com/docs/en/skills)、[sub-agents](https://code.claude.com/docs/en/sub-agents)、[model-config](https://code.claude.com/docs/en/model-config)、[costs](https://code.claude.com/docs/en/costs)、[memory](https://code.claude.com/docs/en/memory)、[permissions](https://code.claude.com/docs/en/permissions)、[permission-modes](https://code.claude.com/docs/en/permission-modes)、[settings](https://code.claude.com/docs/en/settings)、[worktrees](https://code.claude.com/docs/en/worktrees)、[statusline](https://code.claude.com/docs/en/statusline)、[advisor](https://code.claude.com/docs/en/advisor)、[code-review](https://code.claude.com/docs/en/code-review)

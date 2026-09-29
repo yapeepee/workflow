@@ -17,7 +17,7 @@ How to install it, use it day to day, configure it and troubleshoot it. The desi
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # should print 69/69 passed
+node selftest.mjs              # should print 75/75 passed
 node install.mjs --user-only   # skills, subagents, status line, personal CLAUDE.md → ~/.claude
 ```
 
@@ -103,12 +103,14 @@ S (under an hour, one area)
   /spec → implement → /check → /ship
 
 M (a few files or modules)
-  /spec → /clear → Shift+Tab into plan mode → you approve the plan
-        → /test-first (when the behavior is non-trivial) → implement → /check → /ship → /learn
+  /spec → /clear → Shift+Tab into plan mode → you approve the phase plan
+        → /phase (once per phase) → /ship → /learn
 
 L (cross-cutting, or more than a day)
   /spec splits it into M tasks first
 ```
+
+Each `/phase`: tests for this phase only → implement → check → code review (only when this phase's diff is large or risky) → commit → mark it done in plan.md. `/ship` runs once, after the last phase: the full check, the test guard, `/secure` (a security review of the whole branch) and a check against the architecture decisions, and then it writes `ship.md`.
 
 For a complete example (who does each step, with which model, and what you review), see [ARCHITECTURE §3](ARCHITECTURE.md).
 
@@ -118,36 +120,39 @@ For a complete example (who does each step, with which model, and what you revie
 |---|---|---|
 | A new feature or a change in requirements | `/spec <request>` | Writes a task card with acceptance criteria that can be checked mechanically; for L tasks or vague requests, it interviews you one question at a time |
 | Not sure what to do next | `/spec` (no request) | Picks three items from `.solo/inbox.md` and suggests them |
-| Planning an M task | `/clear`, then Shift+Tab | The new session loads the task card automatically; the approved plan is saved as `plan.md` |
-| Complex behavior, and you want to define right and wrong first | `/test-first` | A separate subagent writes failing tests first; you only review the test names |
+| Planning an M task | `/clear`, then Shift+Tab | The new session loads the task card automatically; the plan is a few short phases, saved as `plan.md` once you approve it |
+| Doing the next phase of an M task | `/phase` | Tests for this phase only → implement → check → code review when needed → commit → mark it done |
+| Writing the tests for one phase first, on their own | `/test-first [n]` | A separate subagent writes failing tests first (`/phase` already includes this step); you only review the test names |
 | A bug | `/bugfix <symptom>` | Reproduces it, finds the root cause, adds a regression test, and only then fixes it |
 | You think it's done | `/check` | Runs the full lint, type check, tests and build |
-| Handing it over | `/ship` | In a shared repo it only writes the commit plan and PR description to `ship.md`; you commit yourself |
+| Handing it over (after the last phase) | `/ship` | Runs the full check, `/secure` and a check against the architecture decisions; in a shared repo it only writes the commit plan and PR description to `ship.md`, and you commit yourself |
+| You want a security review early | `/secure [focus]` | Reviews the whole branch carefully against `.solo/security.md`; on the first run, it builds that threat model with you |
 | You want Claude to commit or open the PR | `/ship commit` or `/ship pr` | Asks you before every commit and push |
-| End of a task | `/learn` | Records the lessons; when the same kind of mistake shows up a third time, it becomes a mechanical check |
+| End of a task | `/learn` | Records the lessons; when the same mistake (pattern) shows up a third time, it becomes a mechanical check |
 | Context above 60%, or leaving for more than an hour | `/handoff`, then `/clear` | Progress is written to a file, and the new session picks it up automatically |
 | Comparing approaches | `/proto <idea>` | Builds 2 to 3 throwaway prototypes; once you pick a direction, it goes through `/spec` |
 | Long mechanical work (a migration, for example) | `/goal <condition>` | Built into Claude Code; the condition must state the done criteria and the maximum number of rounds |
 | You want to write the code yourself and learn | Tell Claude "教我" | Claude guides you through writing it instead of handing you the answer |
-| Every Monday | `/retro` | Finds the week's biggest bottleneck and picks one improvement experiment |
+| Every Monday | `/retro` | Finds the week's biggest bottleneck and picks one improvement experiment; compares time to ship, findings fixed before shipping, and bugs found after shipping |
 | Every Friday | `/sweep` | Deletes dead code and unused dependencies; never commits in a shared repo |
 | After a new model ships | `/refresh` | Deletes rules that are no longer needed |
 
-Subagents: `scout` (Haiku, read-only; Claude uses it on its own when it needs to read many files), `test-author` (called by `/test-first`; writes tests only, never production code), `prototyper` (called by `/proto`; one per direction).
+Subagents: `scout` (Sonnet, read-only; Claude uses it when it needs to read many files, and it reports only locations and the searches it actually ran, never conclusions), `test-author` (inherits the main model; called by `/phase` or `/test-first`; writes the tests for one phase only, never production code), `security-reviewer` (inherits the main model; called by `/secure`; reviews the whole branch carefully), `prototyper` (Sonnet; called by `/proto`; one per direction).
 
 ## 6. What happens without a command
 
 - After every edit, projects with a Prettier config format the edited file; in a shared repo, only formatting near your change is kept.
-- Before each turn ends, the kit checks the files changed in that turn. When a check fails, Claude fixes it itself, for up to 3 rounds; after that the check pauses until the next edit.
+- Before each turn ends, the kit checks the files changed in that turn. When a check fails, Claude fixes it itself, for up to 3 rounds; after that the check pauses until the next edit. The PASS message shows how many seconds each step took.
 - When a test is deleted, commented out, marked skip, or loses assertions, Claude is blocked once and must explain why; after that, every PASS message keeps listing those files.
 - When the only cause of a failure is broken dependencies (for example a `node_modules` that is not installed properly), Claude is not blocked; you are told which restore command to run instead.
 - When Claude notices a problem unrelated to the task, it writes it to `.solo/inbox.md` instead of dealing with it on the spot.
-- After a new session, `/clear` or a compact, the current task card and progress load automatically.
+- After a new session, `/clear` or a compact, the current task card, the current phase and progress load automatically.
 - The status line always shows: `Opus · ctx 34% · 5h 23% (resets 14:00) · 7d 41% · main* · task:login-form`.
 
 ## 7. Usage and interruptions
 
 - In the status line, `ctx` is the context this session has used, and `5h` and `7d` are usage; each turns yellow at 50% and red at 80%. When `ctx` reaches 60%, the status line prompts you to run `/handoff` and then `/clear`.
+- Model: the kit does not pin a model; it uses Claude Code's default (as of 2026-09, Opus 5.5 at medium effort on Max). When usage runs tight, use `/model opusplan` (Opus plans, Sonnet implements).
 - On the Max 5x plan, run at most 2 implementation sessions at a time, each in its own worktree (`claude -w <name>`).
 - If you have corrected the same thing twice and it is still wrong, run `/clear` and start again, with what you learned written into the new prompt.
 - When Claude starts going in circles, builds something you did not ask for, or wants to change the tests, press Esc to interrupt.
@@ -156,9 +161,9 @@ Subagents: `scout` (Haiku, read-only; Claude uses it on its own when it needs to
 
 | Location | Contents | Who can see it |
 |---|---|---|
-| `~/.claude/skills/`, `~/.claude/agents/` | 11 skills, 3 subagents | Only you; not in any repo |
+| `~/.claude/skills/`, `~/.claude/agents/` | 13 skills, 4 subagents | Only you; not in any repo |
 | `~/.claude/CLAUDE.md`, `~/.claude/solo-statusline.mjs` | Personal defaults, the usage status line | Only you |
-| `<repo>/.solo/` | engine, `config.json`, `rules/`, `ledger.json`, `decisions.md`, `inbox.md`, task state, logs, baselines | Only you (excluded through `.git/info/exclude`) |
+| `<repo>/.solo/` | engine, `config.json`, `rules/`, `ledger.json`, `decisions.md`, `inbox.md`, `security.md` (the threat model), task state, logs, baselines | Only you (excluded through `.git/info/exclude`) |
 | `<repo>/CLAUDE.local.md` | Your instructions for this project | Only you (Claude Code's standard personal file name, also excluded) |
 | `<repo>/.claude/settings.local.json` | hooks, model, permissions | Only you (Claude Code's standard personal settings file, also excluded) |
 | `<repo>/.worktreeinclude` | Makes `claude -w` worktrees get the private files above too | Only you (excluded; not created when the team already has this file) |
@@ -175,6 +180,7 @@ Subagents: `scout` (Haiku, read-only; Claude uses it on its own when it needs to
 The installer looks at the last 200 commits: if any author is not you (judged by `git config user.email`), the repo counts as shared, even when a single colleague is the only other author. You can also force it with `--shared` or `--personal`. The installer ends by printing `Mode: shared repo` or `Mode: personal repo`. In a shared repo:
 
 - `/ship` defaults to `manual`: after the checks and review, it only writes the file list, commit plan and PR description to `.solo/tasks/<slug>/ship.md`, and runs no git command that writes. To have Claude do it, you must explicitly run `/ship commit`, `/ship pr` or `/ship direct`, and it still asks you before every commit and push.
+- `/phase` only writes each phase's commit (files and message) to `ship.md` when that phase ends, and asks you to commit before it starts the next phase.
 - `/sweep` does not commit or create branches; it records each group of deletions and a suggested commit message in `.solo/`.
 - Format-on-edit keeps only results that land near your change. If the formatter would change lines nobody touched, the file goes back to its pre-format content, so a one-line change never becomes a whole-file diff.
 - token-guard never asks for `token-guard-ignore` comments in the code; a value kept on purpose is reported only once per session.
@@ -195,10 +201,11 @@ Remember in a shared repo:
 |---|---|---|
 | You added ESLint, a Prettier config or a test framework | `node install.mjs "D:\work\team-app" --reconfigure` (re-detects `stacks` and keeps other settings such as tokenGuard and ship; the old file is backed up as `.solo/config.backup.json`) | kit folder |
 | Other people start committing to the repo | `node install.mjs "D:\work\team-app" --shared --reconfigure` | kit folder |
-| The kit was updated | `node install.mjs --user-only --force`, then for each project `node install.mjs "D:\work\team-app" --force` (`CLAUDE.local.md`, `config.json` and rules are never overwritten; `settings.local.json` is merged: older kit hooks are replaced and your own hooks are kept) | kit folder |
+| The kit was updated | `node install.mjs --user-only --force`, then for each project `node install.mjs "D:\work\team-app" --force` (`CLAUDE.local.md`, `config.json` and rules are never overwritten; `settings.local.json` is merged: older kit hooks are replaced and your own hooks are kept; the `opusplan` setting that older versions wrote is removed, and Claude Code's default model is used instead) | kit folder |
 | Run the fast checks by hand | `node .solo/engine/check.mjs --stage stop --changed` | project folder |
 | Check by hand whether tests got weaker | `node .solo/engine/test-guard.mjs --base auto` | project folder |
-| See counts per mistake category | `node .solo/engine/ledger.mjs list --since 30d` | project folder |
+| See trends per mistake category, and mistakes that repeat | `node .solo/engine/ledger.mjs list --since 30d` | project folder |
+| One Stop hook step is slow on every turn (the PASS message shows the seconds, for example over 20 seconds every turn) | In `.solo/config.json`, move that step from `stop` to `full`, so it runs only during `/check` and `/ship` | project folder |
 | Audit the whole project for hard-coded design values | `node .solo/engine/token-guard.mjs <files>` | project folder |
 | Output shows `ENV:` or `Cannot find module '...node_modules...'` | `npm ci` (`dotnet restore` for .NET); the dependencies are broken, not the code | project folder |
 | Output shows `CHANGED FILES:` (a check modified files) | `git restore <those files>`, then fix that command in `.solo/config.json` | project folder |
@@ -252,4 +259,4 @@ For a project type that is not detected, add a stack by hand, for example:
 
 **Project layer**: delete the repo's `.solo/`, `CLAUDE.local.md`, `.worktreeinclude` (only if it starts with the `solo-ai-team` marker, which means the kit created it), and the `proto.dir` folder (if you used `/proto`). If `.claude/settings.local.json` still holds permission settings of your own, delete only the three hooks that point to `.solo/engine/`; if the kit wrote the whole file, delete it. Finally, delete the `# solo-ai-team` block from `.git/info/exclude`. None of this affects the team's repo.
 
-**Personal layer**: delete the 11 skill folders in `~/.claude/skills/`, the 3 files in `~/.claude/agents/` and `~/.claude/solo-statusline.mjs`, then remove `statusLine` from `~/.claude/settings.json`.
+**Personal layer**: delete the 13 skill folders in `~/.claude/skills/`, the 4 files in `~/.claude/agents/` and `~/.claude/solo-statusline.mjs`, then remove `statusLine` from `~/.claude/settings.json`.

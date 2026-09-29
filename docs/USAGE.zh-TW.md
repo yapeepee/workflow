@@ -17,7 +17,7 @@
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # 應該顯示 69/69 passed
+node selftest.mjs              # 應該顯示 75/75 passed
 node install.mjs --user-only   # skills、子代理、狀態列、個人 CLAUDE.md → ~/.claude
 ```
 
@@ -103,12 +103,14 @@ S（一小時內，只動一個區塊）
   /spec → 實作 → /check → /ship
 
 M（動到幾個檔案或模組）
-  /spec → /clear → Shift+Tab 進 plan mode → 你核准計畫
-        → /test-first（行為複雜時）→ 實作 → /check → /ship → /learn
+  /spec → /clear → Shift+Tab 進 plan mode → 你核准 phase 計畫
+        → /phase（每個 phase 一次）→ /ship → /learn
 
 L（跨模組，或超過一天）
   /spec 會先把它拆成幾個 M 任務
 ```
+
+每個 `/phase`：只寫這個 phase 的測試 → 實作 → 檢查 → 這個 phase 的 diff 大或有風險時才 code review → commit → 在 plan.md 標記完成。`/ship` 在最後一個 phase 之後跑一次：完整檢查、test guard、`/secure`（整個分支的安全審查）、比對架構決策、寫 `ship.md`。
 
 完整的例子（每一步由誰做、用哪個模型、你要看什麼）見 [ARCHITECTURE §3](ARCHITECTURE.zh-TW.md)。
 
@@ -118,36 +120,39 @@ L（跨模組，或超過一天）
 |---|---|---|
 | 要做新功能或修改需求 | `/spec <需求>` | 寫出任務卡和可以機械檢查的驗收條件；L 任務或需求模糊時，逐題訪談你 |
 | 不確定下一件做什麼 | `/spec`（不帶需求） | 從 `.solo/inbox.md` 挑三件事建議你 |
-| M 任務要規劃 | `/clear`，再按 Shift+Tab | 新 session 自動載入任務卡；計畫核准後存成 `plan.md` |
-| 行為複雜，想先定義對錯 | `/test-first` | 另一個子代理先寫會失敗的測試；你只要檢查測試名稱 |
+| M 任務要規劃 | `/clear`，再按 Shift+Tab | 新 session 自動載入任務卡；計畫是幾個短的 phase，核准後存成 `plan.md` |
+| 做 M 任務的下一個 phase | `/phase` | 只寫這個 phase 的測試 → 實作 → 檢查 → 需要時 code review → commit → 標記完成 |
+| 單獨為一個 phase 先寫測試 | `/test-first [n]` | 另一個子代理先寫會失敗的測試（`/phase` 已經包含這一步）；你只要檢查測試名稱 |
 | 遇到 bug | `/bugfix <症狀>` | 先重現問題、找出根因、加上回歸測試，最後才修 |
 | 覺得做完了 | `/check` | 跑完整的 lint、型別檢查、測試和 build |
-| 要交出去 | `/ship` | 共用 repo 只把 commit 計畫和 PR 說明寫進 `ship.md`，由你自己 commit |
+| 要交出去（最後一個 phase 之後） | `/ship` | 完整檢查、`/secure`、比對架構決策；共用 repo 只把 commit 計畫和 PR 說明寫進 `ship.md`，由你自己 commit |
+| 想提早做安全審查 | `/secure [重點]` | 對照 `.solo/security.md` 仔細審整個分支；第一次會和你一起建立這份威脅模型 |
 | 要 Claude 代為 commit 或開 PR | `/ship commit` 或 `/ship pr` | 每次 commit 和 push 之前都會先問你 |
-| 任務結束 | `/learn` | 記錄這次的教訓；同類錯誤第三次出現時，改成機械檢查 |
+| 任務結束 | `/learn` | 記錄這次的教訓；同一個錯誤（pattern）第三次出現時，改成機械檢查 |
 | context 超過 60%，或要離開一小時以上 | `/handoff`，再 `/clear` | 進度寫進檔案，新 session 自動接上 |
 | 想比較幾種做法 | `/proto <想法>` | 做 2 到 3 個丟棄式原型；選定方向後再走 `/spec` |
 | 長時間的機械式工作（例如 migration） | `/goal <條件>` | Claude Code 內建；條件要寫明完成標準和最多幾輪 |
 | 想自己寫程式、學新東西 | 對 Claude 說「教我」 | Claude 引導你寫，不直接給答案 |
-| 每週一 | `/retro` | 找出這週最大的瓶頸，選一個改善實驗 |
+| 每週一 | `/retro` | 找出這週最大的瓶頸，選一個改善實驗；比較出貨耗時、出貨前修掉的發現、出貨後才發現的 bug |
 | 每週五 | `/sweep` | 刪除死碼和沒用的依賴；共用 repo 裡不 commit |
 | 新模型推出之後 | `/refresh` | 刪掉已經不需要的規則 |
 
-子代理：`scout`（Haiku，唯讀，Claude 需要讀很多檔案時會主動用它）、`test-author`（由 `/test-first` 呼叫，只寫測試、不碰正式程式碼）、`prototyper`（由 `/proto` 呼叫，一個方向一個）。
+子代理：`scout`（Sonnet，唯讀；Claude 需要讀很多檔案時會用它，它只回報位置和實際跑過的搜尋，不下結論）、`test-author`（沿用主模型；由 `/phase` 或 `/test-first` 呼叫，只寫一個 phase 的測試、不碰正式程式碼）、`security-reviewer`（沿用主模型；由 `/secure` 呼叫，仔細審整個分支）、`prototyper`（Sonnet；由 `/proto` 呼叫，一個方向一個）。
 
 ## 6. 不用下指令，會自動發生的事
 
 - 每次編輯後，有 Prettier 設定的專案會自動格式化該檔案；在共用 repo 裡，只保留改動附近的格式化。
-- 每一輪結束前，套件會檢查這一輪改過的檔案。檢查失敗時，Claude 會自己修，最多 3 輪；之後暫停，直到下一次編輯。
+- 每一輪結束前，套件會檢查這一輪改過的檔案。檢查失敗時，Claude 會自己修，最多 3 輪；之後暫停，直到下一次編輯。PASS 訊息會顯示每一步花了幾秒。
 - 測試被刪除、被註解掉、被加上 skip，或斷言變少時，Claude 會被擋一次並要說明理由；之後的 PASS 訊息會一直列出這些檔案。
 - 失敗的原因只有依賴壞掉（例如 `node_modules` 沒裝好）時，不會擋 Claude，而是直接告訴你要執行哪個還原指令。
 - Claude 發現和任務無關的問題時，會記進 `.solo/inbox.md`，不會當場處理。
-- 開新 session、`/clear` 或 compact 之後，目前的任務卡和進度會自動載入。
+- 開新 session、`/clear` 或 compact 之後，目前的任務卡、目前的 phase 和進度會自動載入。
 - 狀態列一直顯示：`Opus · ctx 34% · 5h 23% (resets 14:00) · 7d 41% · main* · task:login-form`。
 
 ## 7. 額度與中斷
 
 - 狀態列的 `ctx` 是這個 session 用掉的 context，`5h` 和 `7d` 是額度用量；50% 以上變黃、80% 以上變紅。`ctx` 到 60% 時，狀態列會提示你 `/handoff` 再 `/clear`。
+- 模型：套件不指定模型，用 Claude Code 的預設（2026-09 時，Max 是 Opus 5.5、effort medium）。額度吃緊時用 `/model opusplan`（Opus 規劃、Sonnet 實作）。
 - Max 5x 方案同時最多開 2 個實作 session，各自在自己的 worktree（`claude -w <name>`）。
 - 同一件事糾正兩次還是不對時，執行 `/clear`，把學到的寫進新的 prompt 重來。
 - Claude 開始繞圈子、做你沒要求的功能，或想修改測試時，按 Esc 中斷。
@@ -156,9 +161,9 @@ L（跨模組，或超過一天）
 
 | 位置 | 內容 | 誰看得到 |
 |---|---|---|
-| `~/.claude/skills/`、`~/.claude/agents/` | 11 個 skill、3 個子代理 | 只有你；不在任何 repo 裡 |
+| `~/.claude/skills/`、`~/.claude/agents/` | 13 個 skill、4 個子代理 | 只有你；不在任何 repo 裡 |
 | `~/.claude/CLAUDE.md`、`~/.claude/solo-statusline.mjs` | 個人偏好、額度狀態列 | 只有你 |
-| `<repo>/.solo/` | engine、`config.json`、`rules/`、`ledger.json`、`decisions.md`、`inbox.md`、任務狀態、log、baseline | 只有你（被 `.git/info/exclude` 排除） |
+| `<repo>/.solo/` | engine、`config.json`、`rules/`、`ledger.json`、`decisions.md`、`inbox.md`、`security.md`（威脅模型）、任務狀態、log、baseline | 只有你（被 `.git/info/exclude` 排除） |
 | `<repo>/CLAUDE.local.md` | 你對這個專案的指令 | 只有你（Claude Code 官方的個人檔名，同樣被排除） |
 | `<repo>/.claude/settings.local.json` | hooks、模型、權限 | 只有你（Claude Code 官方的個人設定檔，同樣被排除） |
 | `<repo>/.worktreeinclude` | 讓 `claude -w` 的 worktree 也拿到上面這些私有檔案 | 只有你（被排除；團隊已有這個檔案時不會建立） |
@@ -175,6 +180,7 @@ L（跨模組，或超過一天）
 安裝程式會看最近 200 個 commit：只要有不是你（依 `git config user.email` 判斷）的作者，就當成共用 repo，只有一位同事在寫的專案也算。也可以用 `--shared` 或 `--personal` 直接指定。安裝程式最後會印出 `Mode: shared repo` 或 `Mode: personal repo`。共用 repo 裡：
 
 - `/ship` 預設是 `manual`：跑完檢查和 review 之後，只把檔案清單、commit 計畫和 PR 說明寫進 `.solo/tasks/<slug>/ship.md`，不執行任何會寫入的 git 指令。想讓 Claude 代勞，要明確下 `/ship commit`、`/ship pr` 或 `/ship direct`，而且 commit、push 仍然會先問你。
+- `/phase` 在每個 phase 結束時，只把這個 phase 的 commit（檔案和訊息）寫進 `ship.md`，請你 commit 之後才做下一個 phase。
 - `/sweep` 不 commit、不切分支，把每一組刪除和建議的 commit 訊息記在 `.solo/` 裡。
 - 編輯後的自動格式化只保留落在改動附近的結果。格式化工具如果會改到沒人動過的行，檔案就還原成格式化前的內容，避免一行修改變成整個檔案的 diff。
 - token-guard 不會要求在程式碼裡加 `token-guard-ignore` 註解；刻意保留的值在同一個 session 只報一次。
@@ -195,10 +201,11 @@ L（跨模組，或超過一天）
 |---|---|---|
 | 補裝了 ESLint、Prettier 設定或測試框架 | `node install.mjs "D:\work\team-app" --reconfigure`（重新偵測 `stacks`，保留 tokenGuard、ship 等其他設定；舊檔備份成 `.solo/config.backup.json`） | 套件資料夾 |
 | 別人也開始 commit 這個 repo | `node install.mjs "D:\work\team-app" --shared --reconfigure` | 套件資料夾 |
-| 套件更新了 | `node install.mjs --user-only --force`，再對每個專案執行 `node install.mjs "D:\work\team-app" --force`（`CLAUDE.local.md`、`config.json`、rules 不會被覆寫；`settings.local.json` 會合併，舊版的套件 hook 會被換掉，你自己的 hook 保留） | 套件資料夾 |
+| 套件更新了 | `node install.mjs --user-only --force`，再對每個專案執行 `node install.mjs "D:\work\team-app" --force`（`CLAUDE.local.md`、`config.json`、rules 不會被覆寫；`settings.local.json` 會合併，舊版的套件 hook 會被換掉，你自己的 hook 保留；舊版寫入的 `opusplan` 會被移除，改用 Claude Code 的預設模型） | 套件資料夾 |
 | 手動跑快速檢查 | `node .solo/engine/check.mjs --stage stop --changed` | 專案資料夾 |
 | 手動檢查測試有沒有變弱 | `node .solo/engine/test-guard.mjs --base auto` | 專案資料夾 |
-| 查錯誤類別的統計 | `node .solo/engine/ledger.mjs list --since 30d` | 專案資料夾 |
+| 看錯誤類別的趨勢和一再重複的錯誤 | `node .solo/engine/ledger.mjs list --since 30d` | 專案資料夾 |
+| Stop hook 的某一步每輪都很慢（PASS 訊息會顯示秒數，例如每輪都超過 20 秒） | 把那一步從 `.solo/config.json` 的 `stop` 移到 `full`，只在 `/check` 和 `/ship` 時跑 | 專案資料夾 |
 | 全專案稽核寫死的設計值 | `node .solo/engine/token-guard.mjs <files>` | 專案資料夾 |
 | 結果出現 `ENV:`，或 `Cannot find module '...node_modules...'` | `npm ci`（.NET 用 `dotnet restore`）；這是依賴壞掉，不是程式碼的問題 | 專案資料夾 |
 | 結果出現 `CHANGED FILES:`（檢查改到了檔案） | `git restore <那些檔案>`，再修正 `.solo/config.json` 裡那個指令 | 專案資料夾 |
@@ -252,4 +259,4 @@ L（跨模組，或超過一天）
 
 **專案層**：刪掉 repo 裡的 `.solo/`、`CLAUDE.local.md`、`.worktreeinclude`（檔案開頭有 `solo-ai-team` 註記的才是套件建立的），以及 `proto.dir` 資料夾（如果用過 `/proto`）。`.claude/settings.local.json` 裡如果還有你自己的權限設定，只刪掉指向 `.solo/engine/` 的三個 hook；整個檔案都是套件寫的話就直接刪掉。最後把 `.git/info/exclude` 裡 `# solo-ai-team` 那一段刪掉。這些都不會影響團隊的 repo。
 
-**個人層**：刪掉 `~/.claude/skills/` 裡的 11 個 skill 資料夾、`~/.claude/agents/` 裡的 3 個檔案和 `~/.claude/solo-statusline.mjs`，再從 `~/.claude/settings.json` 移除 `statusLine`。
+**個人層**：刪掉 `~/.claude/skills/` 裡的 13 個 skill 資料夾、`~/.claude/agents/` 裡的 4 個檔案和 `~/.claude/solo-statusline.mjs`，再從 `~/.claude/settings.json` 移除 `statusLine`。
