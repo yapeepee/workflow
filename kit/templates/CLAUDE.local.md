@@ -16,15 +16,16 @@ TODO: one or two sentences — what the product does and for whom.
 {{MAP}}
 - `.solo/decisions.md` — architectural decisions; read before changing architecture.
 - `.solo/inbox.md` — noticed-but-not-done work; add to it, don't act on it mid-task.
+- `.solo/security.md` — the threat model `/secure` reviews against (created on its first run).
 
 ## Workflow
-- Non-trivial work starts with `/spec`. M/L tasks go through plan mode before any code; after the plan is approved, save it to `.solo/tasks/<slug>/plan.md`.
-- For codebase questions that need more than ~3 file reads, use the `scout` subagent instead of reading files here.
+- Non-trivial work starts with `/spec`. M tasks go through plan mode before any code; the approved plan is saved to `.solo/tasks/<slug>/plan.md` as short phases, and each phase runs with `/phase` (its own tests, checks, review and commit).
+- For codebase questions that need more than ~3 file reads, use the `scout` subagent. It returns locations and the searches it ran: read the key lines yourself before deciding, and confirm counts or "nothing else uses X" with your own grep.
 - Done means: every acceptance line is met and the checks pass. Never call unverified work done; say what you could not verify.
 - Keep diffs focused on the task. When you notice an unrelated problem, or follow-up work longer than ~2 minutes, append one line to `.solo/inbox.md` instead of doing it.
 - Keep structural changes (rename, move, extract, formatting) apart from behavior changes; when both are needed, do the structural one first so it can be committed separately.
 - Ask before adding a dependency, changing a public API or the database schema, or removing user-facing behavior.
-- Never commit or push unless I explicitly ask (running `/ship commit`, `/ship pr` or `/ship direct` counts as asking). Never stage `.solo/`, `CLAUDE.local.md` or `.claude/settings.local.json`.
+- Never commit or push unless I explicitly ask (running `/phase`, `/ship commit`, `/ship pr` or `/ship direct` counts as asking). Never stage `.solo/`, `CLAUDE.local.md` or `.claude/settings.local.json`.
 - This is a shared repo: follow the team's existing conventions and formatting, and never add kit-specific comments or markers (such as token-guard-ignore) to the code.
 
 ## Conventions

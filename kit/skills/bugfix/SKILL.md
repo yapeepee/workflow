@@ -14,6 +14,6 @@ Symptom: $ARGUMENTS
 3. State the root cause in one sentence — the cause, not the symptom.
 4. Regression test fails → fix → test passes. Fix the cause: no blanket try/catch, no retries that hide the error.
 5. Run `node .solo/engine/check.mjs --stage stop --changed` if `.solo/engine/` exists; otherwise run the project's own tests for the changed area.
-6. Report: root cause · fix · regression test · other places with the same pattern (grep) · ledger category for `/learn`.
+6. Report: root cause · fix · regression test · other places with the same pattern (grep) · ledger category and pattern for `/learn`. If a shipped task introduced the bug, name that task: `/learn` logs it with source `escaped`.
 
-If two hypotheses have failed, stop and suggest `/advisor opus` (Sonnet keeps working, Opus advises at decision points) or switching this investigation to Opus with `/model opus`.
+If two hypotheses have failed, stop and suggest raising the effort for this investigation (xhigh), or the most capable model through `/model` if that still falls short.

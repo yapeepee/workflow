@@ -16,15 +16,17 @@ If `git ls-files CLAUDE.local.md` prints anything, the team repo now tracks that
 Look back over this session: my corrections, failed checks, review findings, retries, wrong assumptions, time sinks.
 
 1. List at most 5 lessons worth keeping. Skip one-off typos. Each lesson is one sentence that would have prevented the problem.
-2. Log each one: `node .solo/engine/ledger.mjs add <category> "<lesson>" --task <slug> --source <review|check|user|self>`.
-   Reuse categories before inventing new ones: type-safety, null-handling, async-error, error-handling, test-gap, weak-test, arch-boundary, api-contract, naming, perf, security, a11y, design-token, env-config, dependency, migration, slop (over-abstraction, dead code, needless comments), scope-creep, spec-misread, tooling.
+2. Log each one: `node .solo/engine/ledger.mjs add <category> "<lesson>" --pattern <slug> --task <slug> --source <review|check|user|self|escaped>`.
+   - The pattern names this one mistake in a few words (`unawaited-fireEvent`, `scout-undercount`). Run `node .solo/engine/ledger.mjs list` first and reuse a pattern only when it is the same mistake: escalation counts patterns, because lessons that merely share a category cannot be caught by one check.
+   - The category is broad and only shows trends. Reuse one before inventing a new one: type-safety, null-handling, async-error, error-handling, test-gap, weak-test, arch-boundary, api-contract, naming, perf, security, a11y, design-token, env-config, dependency, migration, slop (over-abstraction, dead code, needless comments), scope-creep, spec-misread, tooling.
+   - Source `escaped` means the bug was found after its task shipped.
 3. Put each lesson in the cheapest place that actually works:
    - nowhere — a one-off that is unlikely to repeat
    - `CLAUDE.local.md` → Gotchas, one line — applies across the repo
    - `.solo/rules/<topic>.md` (imported by `CLAUDE.local.md`) — framework or area rules
    - a skill's instructions — applies to one workflow (spec, ship, …)
    - a mechanical check — the ledger printed ESCALATE, or a linter/test/check step can catch the pattern.
-     Write the concrete change (lint rule config, a test, a `stop`/`full` step in `.solo/config.json`, or a hook). Once it is in place, run `node .solo/engine/ledger.mjs enforce <category> "<how>"` and delete the prose rule it replaces.
+     Write the concrete change (lint rule config, a test, a `stop`/`full` step in `.solo/config.json`, or a hook). Once it is in place, run `node .solo/engine/ledger.mjs enforce <pattern> "<how>"` and delete the prose rule it replaces.
      Shared repo (`"shared": true` in `.solo/config.json`): enforcement stays private — a `stop`/`full` step or a small script under `.solo/checks/`. A change to the team's lint config, CI or tests is only a suggestion I can take to the team; do not write it.
    Process lessons (spec-misread, scope-creep) usually belong in a skill or `CLAUDE.local.md`, not in a linter.
 4. If an architectural decision was made or changed, append to `.solo/decisions.md`: date · decision · why · rejected alternatives · revisit when.
