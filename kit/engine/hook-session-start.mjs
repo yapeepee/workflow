@@ -55,9 +55,21 @@ const spec = readHead(path.join(dir, 'spec.md'), 30);
 const progress = readHead(path.join(dir, 'progress.md'), 25);
 const hasPlan = fs.existsSync(path.join(dir, 'plan.md'));
 
+// /spec writes phases as "## Phase <n> — <goal> · status: todo" and /phase marks them "status: done".
+// Only the first phase not done is injected: it is where work resumes, and later phases are not this session's job.
+function currentPhase(file) {
+  const phases = fs.readFileSync(file, 'utf8').split(/^(?=## Phase\b)/m).filter((s) => s.startsWith('## Phase'));
+  if (!phases.length) return null;
+  const i = phases.findIndex((p) => !/status:\s*done/i.test(p.split(/\r?\n/)[0]));
+  if (i < 0) return `--- plan.md: all ${phases.length} phases done → /ship ---`;
+  return `--- plan.md: current phase (${i + 1} of ${phases.length}) ---\n${phases[i].trimEnd().split(/\r?\n/).slice(0, 20).join('\n')}`;
+}
+
 const lines = [
   `[solo] active task: ${slug} · branch ${branch} · ${dirty} uncommitted file(s)${hasPlan ? ` · plan: .solo/tasks/${slug}/plan.md` : ''}`,
 ];
 if (spec) lines.push('--- spec.md ---', spec);
+const phase = hasPlan ? currentPhase(path.join(dir, 'plan.md')) : null;
+if (phase) lines.push(phase);
 if (progress) lines.push('--- progress.md (continue from "Next") ---', progress);
 say(lines);

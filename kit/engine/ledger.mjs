@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Lessons ledger (reshaped from the agent-harnesses verdict ledger).
-// Counts recurring mistakes by category so a rule graduates from prose to a mechanical check
-// once it has cost you `threshold` times (default 3) — Boris Cherny's "3-4 repeats → lint rule" habit.
+// A rule graduates from prose to a mechanical check once the SAME mistake has cost you `threshold` times
+// (default 3) — Boris Cherny's "3-4 repeats → lint rule" habit. A pattern names that one mistake
+// (e.g. unawaited-fireEvent); a category is broad (tooling, test-gap) and only shows trends for /retro.
+// Counting categories escalated unrelated lessons that no single check could catch.
 //
-//   node .solo/engine/ledger.mjs add <category> "<lesson>" [--task <slug>] [--source review|check|user|self]
+//   node .solo/engine/ledger.mjs add <category> "<lesson>" --pattern <slug> [--task <slug>] [--source review|check|user|self|escaped]
 //   node .solo/engine/ledger.mjs list [--since 7d|30d]
-//   node .solo/engine/ledger.mjs enforce <category> "<how it is enforced now>"
+//   node .solo/engine/ledger.mjs enforce <pattern> "<how it is enforced now>"
 import fs from 'node:fs';
 import path from 'node:path';
 import { repoRoot } from './lib.mjs';
@@ -29,6 +31,7 @@ const flag = (args, name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const positional = (args) => args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--')));
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
 const [cmd, ...rest] = process.argv.slice(2);
 const db = load();
@@ -36,18 +39,22 @@ const db = load();
 if (cmd === 'add') {
   const [category, lesson] = positional(rest);
   if (!category || !lesson) {
-    console.error('usage: ledger.mjs add <category> "<lesson>" [--task slug] [--source review|check|user|self]');
+    console.error('usage: ledger.mjs add <category> "<lesson>" --pattern <slug> [--task slug] [--source review|check|user|self|escaped]');
     process.exit(2);
   }
-  const cat = category.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  db.entries.push({ date: today(), category: cat, lesson, task: flag(rest, '--task') || null, source: flag(rest, '--source') || null });
+  const cat = slug(category);
+  const pattern = flag(rest, '--pattern') ? slug(flag(rest, '--pattern')) : null;
+  db.entries.push({ date: today(), category: cat, pattern, lesson, task: flag(rest, '--task') || null, source: flag(rest, '--source') || null });
   save(db);
-  const count = db.entries.filter((e) => e.category === cat).length;
-  let msg = `logged [${cat}] — ${count} occurrence(s) total.`;
-  if (db.enforced[cat]) {
-    msg += ` NOTE: '${cat}' is enforced by "${db.enforced[cat].how}" since ${db.enforced[cat].date}; a new occurrence means that check has a gap — inspect it.`;
-  } else if (count >= db.threshold) {
-    msg += ` ESCALATE: '${cat}' reached ${count}. Propose a mechanical check (lint rule, test, check step or hook) instead of another prose rule.`;
+  let msg = `logged [${cat}${pattern ? ` · ${pattern}` : ''}] — ${db.entries.filter((e) => e.category === cat).length} in this category.`;
+  if (!pattern) msg += ' No --pattern given, so this lesson does not count toward escalation.';
+  else {
+    const count = db.entries.filter((e) => e.pattern === pattern).length;
+    if (db.enforced[pattern]) {
+      msg += ` NOTE: '${pattern}' is enforced by "${db.enforced[pattern].how}" since ${db.enforced[pattern].date}; a new occurrence means that check has a gap — inspect it.`;
+    } else if (count >= db.threshold) {
+      msg += ` ESCALATE: the same mistake ('${pattern}') happened ${count} times. Propose a mechanical check (lint rule, test, check step or hook) instead of another prose rule.`;
+    } else msg += ` '${pattern}': ${count} of ${db.threshold}.`;
   }
   console.log(msg);
 } else if (cmd === 'list') {
@@ -68,18 +75,28 @@ if (cmd === 'add') {
   const sorted = [...rows.entries()].filter(([, r]) => !days || r.recent > 0).sort((a, b) => b[1].recent - a[1].recent || b[1].total - a[1].total);
   if (!sorted.length) console.log(days ? `no lessons logged in the last ${days} days` : 'ledger is empty');
   for (const [cat, r] of sorted) {
-    const status = db.enforced[cat] ? `enforced: ${db.enforced[cat].how}` : r.total >= db.threshold ? 'ESCALATE' : '';
-    console.log(`${cat.padEnd(18)} total ${String(r.total).padStart(2)}${days ? `  last ${days}d ${String(r.recent).padStart(2)}` : ''}  last ${r.last}  ${status}\n    ↳ ${r.lastLesson}`);
+    console.log(`${cat.padEnd(18)} total ${String(r.total).padStart(2)}${days ? `  last ${days}d ${String(r.recent).padStart(2)}` : ''}  last ${r.last}\n    ↳ ${r.lastLesson}`);
+  }
+  // repeats of one mistake, all time: these (not the category totals above) are what escalates
+  const patterns = new Map();
+  for (const e of db.entries) if (e.pattern) patterns.set(e.pattern, (patterns.get(e.pattern) || 0) + 1);
+  const repeated = [...patterns].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1]);
+  if (repeated.length) {
+    console.log('\nrepeated mistakes:');
+    for (const [p, n] of repeated) {
+      const status = db.enforced[p] ? `enforced: ${db.enforced[p].how}` : n >= db.threshold ? 'ESCALATE' : `${n} of ${db.threshold}`;
+      console.log(`  ${p.padEnd(28)} ${n}×  ${status}`);
+    }
   }
 } else if (cmd === 'enforce') {
-  const [category, how] = positional(rest);
-  if (!category || !how) {
-    console.error('usage: ledger.mjs enforce <category> "<how it is enforced>"');
+  const [pattern, how] = positional(rest);
+  if (!pattern || !how) {
+    console.error('usage: ledger.mjs enforce <pattern> "<how it is enforced>"');
     process.exit(2);
   }
-  db.enforced[category] = { how, date: today() };
+  db.enforced[slug(pattern)] = { how, date: today() };
   save(db);
-  console.log(`'${category}' marked as enforced by: ${how}. Remove the prose rule it replaces.`);
+  console.log(`'${slug(pattern)}' marked as enforced by: ${how}. Remove the prose rule it replaces.`);
 } else {
   console.log('usage: ledger.mjs add|list|enforce …  (see header of this file)');
   process.exit(cmd ? 2 : 0);

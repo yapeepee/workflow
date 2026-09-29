@@ -48,7 +48,8 @@ const markSeen = () => {
 if (res.ok && !newWeakening) {
   saveState(sid, { ...state, edited: [], fails: 0, suspended: false });
   const flagged = weakened.length ? ` · ⚠ tests weaker than HEAD, review before committing: ${weakened.map((w) => w.file).join(', ')}` : '';
-  if (ran.length || flagged) out({ systemMessage: `solo check PASS${ran.length ? `: ${ran.map((r) => `${r.stack}/${r.step}`).join(', ')}` : ''}${flagged}` });
+  // seconds per step, because this runs every turn: a step that is always slow belongs in "full" only
+  if (ran.length || flagged) out({ systemMessage: `solo check PASS${ran.length ? `: ${ran.map((r) => `${r.stack}/${r.step} ${(r.ms / 1000).toFixed(1)}s`).join(', ')}` : ''}${flagged}` });
   process.exit(0);
 }
 

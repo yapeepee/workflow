@@ -17,7 +17,7 @@
 //   --dry-run       print what would happen, change nothing
 //
 // Where things go
-//   ~/.claude/skills, ~/.claude/agents     the 11 skills and 3 subagents (personal, shared by all your projects)
+//   ~/.claude/skills, ~/.claude/agents     the kit's skills and subagents (personal, shared by all your projects)
 //   <repo>/.solo/                           engine, config, rules, ledger, decisions, task state
 //   <repo>/CLAUDE.local.md                  your private project instructions (Claude Code's standard personal file)
 //   <repo>/.claude/settings.local.json      hooks, model, permissions (Claude Code's standard personal settings file)
@@ -323,7 +323,12 @@ function detect() {
 // ---------------- settings merge ----------------
 function mergeSettings(existing, ours) {
   const res = { ...ours, ...existing };
-  if (existing.model && existing.model !== ours.model) notes.push(`Kept your model "${existing.model}" (the kit suggests "opusplan").`);
+  // Older kits pinned "opusplan" (Opus plans, Sonnet builds) because Opus used to cost far more. The kit now leaves the
+  // model to Claude Code's default, so it drops the value it wrote itself; any other model is your choice and stays.
+  if (existing.model === 'opusplan') {
+    delete res.model;
+    notes.push('Removed "model": "opusplan", which older versions of the kit set: Claude Code\'s default model applies now. To save usage, switch back with /model opusplan.');
+  }
   res.env = { ...(ours.env || {}), ...(existing.env || {}) };
   res.permissions = { ...(ours.permissions || {}), ...(existing.permissions || {}) };
   for (const k of ['allow', 'ask', 'deny']) {
@@ -588,7 +593,7 @@ else write(settingsFile, `${JSON.stringify(ours, null, 2)}\n`);
 // 8) worktrees: copy the private files into new `claude -w` worktrees
 const wtInclude = path.join(TARGET, '.worktreeinclude');
 let ownWorktreeInclude = false;
-const wtPatterns = ['.solo/engine/**', '.solo/rules/**', '.solo/checks/**', '.solo/baseline/**', '.solo/config.json', '.solo/ledger.json', '.solo/decisions.md', '.solo/inbox.md', 'CLAUDE.local.md', '.claude/settings.local.json'];
+const wtPatterns = ['.solo/engine/**', '.solo/rules/**', '.solo/checks/**', '.solo/baseline/**', '.solo/config.json', '.solo/ledger.json', '.solo/decisions.md', '.solo/inbox.md', '.solo/security.md', 'CLAUDE.local.md', '.claude/settings.local.json'];
 const wtText = readText(wtInclude);
 if (!atTop) {
   /* worktrees are created from the repo root; skip when installed into a subfolder */

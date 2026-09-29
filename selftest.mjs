@@ -113,6 +113,7 @@ try {
   r = hook('hook-stop.mjs', { session_id: sid, cwd: repo, hook_event_name: 'Stop' });
   j = r.out ? JSON.parse(r.out) : {};
   check('stop passes after the fix', !j.decision && /PASS/.test(j.systemMessage || ''), r.out || r.err);
+  check('the PASS line shows how long each step took', /app\/lint \d+\.\d+s/.test(j.systemMessage || ''), j.systemMessage);
   r = hook('hook-stop.mjs', { session_id: sid, cwd: repo, hook_event_name: 'Stop' });
   check('stop is silent when nothing was edited', r.code === 0 && r.out === '', r.out);
 
@@ -272,8 +273,17 @@ try {
   write('.solo/ACTIVE', 'demo-task\n');
   write('.solo/tasks/demo-task/spec.md', '# Demo\nAcceptance:\n- [ ] works\n');
   write('.solo/tasks/demo-task/progress.md', 'Next:\n1. finish it\n');
+  write(
+    '.solo/tasks/demo-task/plan.md',
+    '# Plan\n\n## Phase 1 — schema · status: done a1b2c3d\nFiles: db/schema.sql\n\n## Phase 2 — orders endpoint · status: todo\nFiles: api/orders.ts\nVerify: npm test -- orders\n\n## Phase 3 — list page · status: todo\nFiles: web/orders.tsx\n',
+  );
   r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
   check('session-start injects task card and progress', /active task: demo-task/.test(r.out) && /finish it/.test(r.out), r.out);
+  check(
+    'session-start injects the current phase from plan.md, and only that one',
+    /current phase \(2 of 3\)/.test(r.out) && /Verify: npm test -- orders/.test(r.out) && !/Phase 1 — schema/.test(r.out) && !/Phase 3 — list page/.test(r.out),
+    r.out,
+  );
 
   // ---------- hooks exactly as Claude Code runs them (exec form from kit/settings.json) ----------
   const kitSettings = JSON.parse(fs.readFileSync(path.join(KIT, 'settings.json'), 'utf8'));
@@ -328,9 +338,24 @@ try {
   fs.rmSync(path.join(repo, 'app', 'src', 'big.ts'));
   const smallGate = tool('check.mjs', ['--review-gate']).out;
   check('review gate suggests splitting only a large change', /SPLIT SUGGESTED/.test(bigGate) && !/SPLIT/.test(smallGate), `${bigGate}\n${smallGate}`);
+  // one /phase is reviewed on its own: earlier phases are committed on the branch, --base HEAD leaves them out
+  const mainBranch = git('rev-parse', '--abbrev-ref', 'HEAD');
+  git('switch', '-q', '-c', 'feature');
+  write('app/src/phase1.ts', Array.from({ length: 450 }, (_, i) => `export const p${i} = ${i};`).join('\n'));
+  git('add', 'app/src/phase1.ts');
+  git('commit', '-qm', 'phase 1');
+  write('app/src/phase2.ts', 'export const q = 1;\n');
+  const branchGate = tool('check.mjs', ['--review-gate']).out;
+  const phaseGate = tool('check.mjs', ['--review-gate', '--base', 'HEAD']).out;
+  check('review gate --base HEAD looks only at the uncommitted phase', /SPLIT SUGGESTED/.test(branchGate) && /^REVIEW /m.test(phaseGate) && !/SPLIT/.test(phaseGate), `${branchGate}\n${phaseGate}`);
+  fs.rmSync(path.join(repo, 'app', 'src', 'phase2.ts'));
+  git('switch', '-q', mainBranch);
   let last = '';
-  for (let i = 1; i <= 3; i++) last = tool('ledger.mjs', ['add', 'null-handling', `lesson ${i}`, '--task', 'demo-task']).out;
-  check('ledger escalates on the 3rd occurrence', /ESCALATE/.test(last), last);
+  for (let i = 1; i <= 3; i++) last = tool('ledger.mjs', ['add', 'null-handling', `lesson ${i}`, '--pattern', 'unchecked-optional', '--task', 'demo-task']).out;
+  check('ledger escalates when the same mistake (pattern) happens a 3rd time', /ESCALATE/.test(last), last);
+  let mixed = '';
+  for (let i = 1; i <= 3; i++) mixed = tool('ledger.mjs', ['add', 'tooling', `unrelated lesson ${i}`, '--pattern', `one-off-${i}`]).out;
+  check('three different mistakes in one category do not escalate', !/ESCALATE/.test(mixed) && /tooling/.test(tool('ledger.mjs', ['list']).out), mixed);
   const sl = spawnSync(process.execPath, [path.join(solo, 'statusline.mjs')], {
     input: JSON.stringify({ model: { display_name: 'Opus' }, workspace: { current_dir: repo }, context_window: { used_percentage: 64 }, rate_limits: { five_hour: { used_percentage: 20, resets_at: 1800000000 } } }),
     encoding: 'utf8',
@@ -371,9 +396,18 @@ try {
   check(
     'private files exist in the repo',
     ['.solo/engine/check.mjs', '.solo/engine/test-guard.mjs', '.solo/config.json', '.solo/inbox.md', 'CLAUDE.local.md', '.claude/settings.local.json'].every((f) => fs.existsSync(path.join(mine, f))) &&
-      fs.readFileSync(path.join(mine, '.worktreeinclude'), 'utf8').includes('.solo/inbox.md'),
+      ['.solo/inbox.md', '.solo/security.md'].every((p) => fs.readFileSync(path.join(mine, '.worktreeinclude'), 'utf8').includes(p)),
   );
-  check('skills and agents went to ~/.claude', fs.existsSync(path.join(fakeHome, '.claude', 'skills', 'spec', 'SKILL.md')) && fs.existsSync(path.join(fakeHome, '.claude', 'agents', 'scout.md')));
+  // every skill and agent carries the kit marker, which is how a later install knows it may update them
+  const kitFiles = [
+    ...fs.readdirSync(path.join(KIT, 'skills')).map((s) => path.join('skills', s, 'SKILL.md')),
+    ...fs.readdirSync(path.join(KIT, 'agents')).map((a) => path.join('agents', a)),
+  ];
+  check(
+    'every kit skill and agent went to ~/.claude, marked as the kit\'s',
+    kitFiles.every((f) => fs.existsSync(path.join(fakeHome, '.claude', f)) && fs.readFileSync(path.join(fakeHome, '.claude', f), 'utf8').includes('solo-ai-team')),
+    kitFiles.filter((f) => !fs.existsSync(path.join(fakeHome, '.claude', f))).join(', '),
+  );
   check('git add -A would not stage any kit file', g(mine, 'add', '-A', '--dry-run') === '');
   const mineCfg = JSON.parse(fs.readFileSync(path.join(mine, '.solo', 'config.json'), 'utf8'));
   const mineLocal = fs.readFileSync(path.join(mine, 'CLAUDE.local.md'), 'utf8');
@@ -404,6 +438,7 @@ try {
   const sj = JSON.parse(fs.readFileSync(localSettings, 'utf8'));
   sj.hooks.Stop.push({ hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/.solo/engine/hook-stop.mjs'] }] }); // older kit version
   sj.hooks.Stop.push({ hooks: [{ type: 'command', command: 'echo mine' }] }); // a hook of your own
+  sj.model = 'opusplan'; // what older kits wrote
   fs.writeFileSync(localSettings, JSON.stringify(sj));
   const again = spawnSync(process.execPath, [INSTALL, mine], { encoding: 'utf8', env });
   const merged = JSON.parse(fs.readFileSync(localSettings, 'utf8'));
@@ -411,6 +446,15 @@ try {
     'reinstall replaces old kit hooks and keeps your own',
     again.status === 0 && merged.hooks.Stop.length === 2 && merged.hooks.Stop.some((grp) => JSON.stringify(grp).includes('echo mine')) && merged.hooks.SessionStart.length === 1 && merged.hooks.PostToolUse.length === 1,
     again.stderr || JSON.stringify(merged.hooks.Stop).slice(0, 300),
+  );
+  const droppedOldModel = !('model' in merged);
+  merged.model = 'sonnet'; // a model you chose yourself
+  fs.writeFileSync(localSettings, JSON.stringify(merged));
+  spawnSync(process.execPath, [INSTALL, mine], { encoding: 'utf8', env });
+  check(
+    'reinstall drops the model an older kit pinned (opusplan) and keeps one you chose',
+    droppedOldModel && /opusplan/.test(again.stdout) && JSON.parse(fs.readFileSync(localSettings, 'utf8')).model === 'sonnet',
+    again.stdout.slice(-500),
   );
 
   // git treats excluded files as expendable: if a teammate ever commits a file with the same name,

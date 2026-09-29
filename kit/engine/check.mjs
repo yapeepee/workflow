@@ -5,7 +5,8 @@
 //   node .solo/engine/check.mjs --stage stop --files a b   fast checks on given files
 //   node .solo/engine/check.mjs --stage full               everything (lint, types, tests, build)
 //   node .solo/engine/check.mjs --update-baseline          accept current failures as known (legacy repos)
-//   node .solo/engine/check.mjs --review-gate              should /ship run a code review / split the PR?
+//   node .solo/engine/check.mjs --review-gate              should the branch get a code review / be split?
+//   node .solo/engine/check.mjs --review-gate --base HEAD  the same question for the uncommitted work only (one /phase)
 //
 // Output is short on purpose: pass/fail per step, the error lines that matter, and a pointer to the full log.
 import { createHash } from 'node:crypto';
@@ -186,8 +187,9 @@ function detectBase(root) {
   return 'HEAD';
 }
 
-export function reviewGate(root, cfg) {
-  const base = cfg.ship.base || detectBase(root);
+// base: HEAD reviews one phase before its commit; the default (the branch point) reviews everything a PR would show.
+// Measuring a phase against the branch point would make every phase re-review the ones already committed.
+export function reviewGate(root, cfg, base = cfg.ship.base || detectBase(root)) {
   const counted = (f) => !matchAny(cfg.ignore, f) && !matchAny(cfg.review.ignore, f);
   let lines = 0;
   const files = [];
@@ -215,10 +217,11 @@ export function reviewGate(root, cfg) {
 }
 
 function parseArgs(argv) {
-  const a = { stage: 'full', files: null, changed: false, updateBaseline: false, reviewGate: false };
+  const a = { stage: 'full', files: null, changed: false, updateBaseline: false, reviewGate: false, base: undefined };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--stage') a.stage = argv[++i];
+    else if (k === '--base') a.base = argv[++i];
     else if (k === '--changed') a.changed = true;
     else if (k === '--update-baseline') a.updateBaseline = true;
     else if (k === '--review-gate') a.reviewGate = true;
@@ -233,7 +236,7 @@ function parseArgs(argv) {
 function main() {
   const a = parseArgs(process.argv.slice(2));
   if (a.help) {
-    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 9).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 10).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     return 0;
   }
   const root = repoRoot();
@@ -246,7 +249,7 @@ function main() {
   }
 
   if (a.reviewGate) {
-    const g = reviewGate(root, cfg);
+    const g = reviewGate(root, cfg, a.base);
     console.log(
       g.required
         ? `REVIEW REQUIRED — ${g.reasons.join('; ')} (${g.files} files vs ${g.base.slice(0, 10)})`
