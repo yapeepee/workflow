@@ -59,8 +59,10 @@ const hasPlan = fs.existsSync(path.join(dir, 'plan.md'));
 // Only the first phase not done is injected: it is where work resumes, and later phases are not this session's job.
 function currentPhase(file) {
   const phases = fs.readFileSync(file, 'utf8').split(/^(?=## Phase\b)/m).filter((s) => s.startsWith('## Phase'));
-  if (!phases.length) return null;
-  const i = phases.findIndex((p) => !/status:\s*done/i.test(p.split(/\r?\n/)[0]));
+  const heading = (p) => p.split(/\r?\n/)[0];
+  // a plan written before phases had a status would look entirely unfinished: say nothing rather than guess
+  if (!phases.some((p) => /status:/i.test(heading(p)))) return null;
+  const i = phases.findIndex((p) => !/status:\s*done/i.test(heading(p)));
   if (i < 0) return `--- plan.md: all ${phases.length} phases done → /ship ---`;
   return `--- plan.md: current phase (${i + 1} of ${phases.length}) ---\n${phases[i].trimEnd().split(/\r?\n/).slice(0, 20).join('\n')}`;
 }

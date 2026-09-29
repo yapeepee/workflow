@@ -284,6 +284,9 @@ try {
     /current phase \(2 of 3\)/.test(r.out) && /Verify: npm test -- orders/.test(r.out) && !/Phase 1 — schema/.test(r.out) && !/Phase 3 — list page/.test(r.out),
     r.out,
   );
+  write('.solo/tasks/demo-task/plan.md', '# Plan\n\n## Phase 1: schema\n\n## Phase 2: orders endpoint\n'); // written before phases had a status
+  r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
+  check('a plan without status markers is not guessed at', /active task: demo-task/.test(r.out) && !/current phase/.test(r.out), r.out);
 
   // ---------- hooks exactly as Claude Code runs them (exec form from kit/settings.json) ----------
   const kitSettings = JSON.parse(fs.readFileSync(path.join(KIT, 'settings.json'), 'utf8'));
