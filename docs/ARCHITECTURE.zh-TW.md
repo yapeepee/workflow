@@ -93,11 +93,12 @@
                       prototyper（Sonnet）
    ─────────────────────────────────────────────────────────────────────────────
    記憶層：~/.claude/CLAUDE.md · CLAUDE.local.md · .solo/rules · skills（按需載入）
+          · .solo/product.md（產品規則）· .solo/architecture.md（架構規則與標準做法）
           · .solo/tasks（任務狀態）· .solo/ledger.json（錯誤次數）· .solo/decisions.md
           · .solo/security.md（威脅模型）
 ```
 
-「強模型在編譯期、弱模型在執行期」是前身 harness 的原則（見 §11），在這裡變成模型分工的依據：需要判斷的工作（計畫、實作、測試、安全審查）都用預設的強模型，只有搜尋和丟棄式原型用 Sonnet，最常執行的判定交給不花 token 的腳本。早期版本寫死 `opusplan`（Sonnet 實作）和 Haiku 偵查，因為當時 Opus 貴很多；這個前提已經不成立（見 §6.1、§17）。
+全局觀留在主 session：子代理啟動時只拿到任務說明，看不到對話，所以分析、設計和計畫都由主 session 自己讀程式來做，子代理只負責搜尋、寫測試和審查這類需要獨立的工作（見 §18）。「強模型在編譯期、弱模型在執行期」是前身 harness 的原則（見 §11），在這裡變成模型分工的依據：需要判斷的工作（計畫、實作、測試、安全審查）都用預設的強模型，只有搜尋和丟棄式原型用 Sonnet，最常執行的判定交給不花 token 的腳本。早期版本寫死 `opusplan`（Sonnet 實作）和 Haiku 偵查，因為當時 Opus 貴很多；這個前提已經不成立（見 §6.1、§17）。
 
 | Anthropic 的做法 | 一人版的做法 |
 |---|---|
@@ -116,13 +117,14 @@
 
 | 步驟 | 執行者與模型 | 你要做的事 | 成本控制 |
 |---|---|---|---|
-| 1. `/spec`（在新 session 執行） | Opus | 回答產品問題（S/M 最多 3 題；L 或模糊的需求會逐題訪談），確認驗收條件 | context 很小，這時切換模型幾乎沒有代價 |
-| 2. plan mode（M 以上） | Opus | 讀 phase 計畫（約 150 行以內），核准或修正 | 大範圍探索交給 scout（Sonnet，只回報位置和搜尋） |
-| 3. `/phase`（每個 phase 一次） | test-author 先寫這個 phase 的測試，主 session 實作（都用預設模型） | 看測試名稱和斷言：這是槓桿最高的 review；共用 repo 由你自己 commit | Stop hook 自動驗證；review gate 只量這個 phase 的 diff |
+| 0. `/product`、`/architecture`（偶爾） | Opus，主 session 自己讀程式 | 回答產品訪談；核准產品規則、架構規則和標準做法 | 一個專案做一次，之後小幅更新；`/architecture` 用掉很多 context，做完先 `/clear` |
+| 1. `/spec`（在新 session 執行） | Opus | 回答產品問題（S/M 最多 3 題；L 或模糊的需求會逐題訪談）；M/L 核准任務卡；需要新架構做法時核准 | context 很小，這時切換模型幾乎沒有代價；主 session 自己讀相關程式，scout 只做窮舉搜尋 |
+| 2. plan mode（M 以上） | Opus | 讀 phase 計畫（約 150 行以內，每個 phase 註明照哪個標準做法），核准或修正 | 需要全局的旁支工作用 fork，沿用 prompt cache |
+| 3. `/phase`（每個 phase 一次） | test-author 先寫這個 phase 的測試，主 session 照參考檔案實作（都用預設模型） | 看測試名稱和斷言：這是槓桿最高的 review；共用 repo 由你自己 commit | Stop hook 自動驗證；commit 前對照參考檔案；review gate 只量這個 phase 的 diff |
 | 4. `/ship`（最後一個 phase 之後） | 主 session 加 runner；`/secure` 由 security-reviewer 在全新的 context 審整個分支 | 看安全審查報告、`ship.md` 和高風險路徑的 diff | code review 已經在各個 phase 做過；安全審查每個任務一次 |
 | 5. `/learn` | 預設模型 | 核准記憶和規則的變更 | 每次最多 5 條 |
 
-context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 再 `/clear`。新 session 開始時，SessionStart hook 會自動載入任務卡、目前的 phase 和進度。
+context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 再 `/clear`。新 session 開始時，SessionStart hook 會自動載入任務卡（含 Change log）、目前的 phase 和進度。做到一半改需求時，Claude 先分級再處理（見 §18.4）。
 
 ### 範例：訂單列表加上日期區間篩選（Angular + ASP.NET Core）
 
@@ -143,6 +145,8 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 | 個人層 | `~/.claude/CLAUDE.md` | 每個 session | 語言、溝通風格、通用原則 | 任何專案細節 |
 | 團隊的專案層 | repo 裡的 `CLAUDE.md`（如果團隊有） | 每個 session | 團隊的規範 | 套件不會修改它 |
 | 你的專案層 | `CLAUDE.local.md` | 每個 session | 指令、目錄地圖、流程、Gotchas | linter 能檢查的規則 |
+| 產品規則 | `.solo/product.md`（由 `CLAUDE.local.md` 匯入） | 每個 session 和每個自訂子代理 | 角色、核心流程、產品規則（P1…）、不做的事、待決問題；約 120 行以內 | 功能清單 |
+| 架構規則 | `.solo/architecture.md`（由 `CLAUDE.local.md` 匯入） | 每個 session 和每個自訂子代理 | 規則（A1…）、每種改動的標準做法和參考檔案、已知例外；約 200 行以內 | 目錄導覽、程式碼本身看得出來的事 |
 | 框架規則 | `.solo/rules/*.md`（由 `CLAUDE.local.md` 匯入） | 每個 session | 框架和語言的規則 | 全專案通用的規則 |
 | 流程 | `~/.claude/skills/*/SKILL.md` | 被呼叫時；只限使用者呼叫的 skill 連描述都不載入 | 做事的步驟 | 專案事實 |
 | 任務狀態 | `.solo/tasks/<slug>/` | SessionStart 自動注入任務卡、目前的 phase 和進度 | spec、plan、progress、證據 | 長期知識 |
@@ -153,7 +157,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 
 自動記憶是 Claude Code 內建的功能。它和 `/learn` 的分工是：自動記憶是 Claude 隨手記的便條，`/learn` 產生的是經過你核准的正式規則。`/refresh` 會提醒你用 `/memory` 檢查自動記憶的大小。
 
-套件常駐在 context 的內容（`CLAUDE.local.md` 模板、匯入的框架規則、三個可自動觸發的 skill 描述、四個子代理描述）合計約 1,500 tokens 以內。作為對照，Claude Code 團隊自己的 CLAUDE.md 約 2,500 tokens。
+套件常駐在 context 的內容（`CLAUDE.local.md` 模板、匯入的框架規則、`product.md` 和 `architecture.md` 的空白版、三個可自動觸發的 skill 描述、四個子代理描述）合計約 2,000 tokens（以字元數除以 4 估算）。作為對照，Claude Code 團隊自己的 CLAUDE.md 約 2,500 tokens。`product.md` 和 `architecture.md` 寫好之後，每個 session 再多約 3,000 到 5,000 tokens；這是刻意的取捨，換來每個 session 和子代理都從同一份規則出發，所以兩份都有行數上限，`/refresh` 也會修剪它們。
 
 ## 5. 驗證與品質
 
@@ -206,7 +210,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 
 ### 6.1 事實（依 2026-09 的官方文件；模型與價格在 2026-09-29 重新查證）
 
-- Claude Code 對 Pro、Max、Team 的預設模型是 Opus 5.5，effort 預設 medium。套件不再指定模型，所以就用這個預設。
+- Claude Code 對 Pro、Max、Team 的預設模型是 Opus 5.5，effort 預設 medium。套件不再指定 session 的模型，所以就用這個預設；只有 `/spec`、`/product`、`/architecture` 和 `/refresh` 固定用 Opus。
 - `opusplan`：plan mode 用 Opus，其他時候用 Sonnet（2026-09-28 起是 Sonnet 5.5）。額度吃緊時可以用 `/model opusplan`。
 - API 價格（每百萬 token，輸入／輸出）：Fable 5.1 $10/$50、Opus 5.5 $4/$20、Sonnet 5.5 $2/$10、Haiku 4.5 $1/$5（context 200K，仍是最新的 Haiku）。訂閱方案的額度怎麼換算，官方沒有公布，API 價格只能當方向參考。
 - 官方建議多數工作先用 Opus 5.5；需要高強度推理、長時間的 agentic 工作，或 Opus 提高 effort 仍然不夠時，才用 Fable 5.1。
@@ -343,7 +347,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - **換行必須是 LF。** 安裝程式用以 `\n` 錨定的 regex 解析模板。git clone 由 `.gitattributes` 保證 LF；用其他方式複製、被轉成 CRLF 的檔案，會讓規則模板的 front matter 剝不乾淨。
 - **安全審查的成本。** `/secure` 讓強模型每個任務讀一次整個分支；分支很大時注意力會變薄。對策是把任務切小（phase）、把重複的規則機械化。
 - **phase 迴圈和 `/secure` 還沒在真實任務上量過。** 它們是從一個真實專案的紀錄推出來的（見 §17），效果要看 `/ship` 的量測紀錄和 `/retro`。
-- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-28 在 Windows 11 原生通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 75 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
+- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-29 全部 82 項在 Windows 11 原生環境和 Linux 上通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 82 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
 - **能省多少額度，目前沒有量化數據。** 請用 `/usage` 的 attribution 和 statusline 自己量。
 - **Claude Code 變化很快。** 套件用到的功能多在 v2.1.2xx 之後才有，安裝前先 `claude update`。
 - **Anthropic 公布的數字**（80% 的合併程式碼、每人 8 倍的合併量、200% 的產出成長）多數是自我報告，而且以行數計算。這個架構不追求這些數字，也不用程式碼行數當指標。
@@ -401,9 +405,66 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 2. **通用的安全掃描沒有作為。** 跑了十多次都沒有發現，真正的授權漏洞是 code review 抓到的。→ `/secure`（§5.4）：以專案的威脅模型為全貌，一次仔細審整個分支。
 3. **scout 漏算，計畫卻建立在它的摘要上。** 同一個檔案裡有 2 處，Haiku 只找到 1 處。→ scout 改用 Sonnet，只回報位置和實際跑過的搜尋，不下結論；數量和「沒有別的地方用到」由主模型自己 grep 確認。
 4. **ledger 誤觸發。** ESCALATE 在 5 個類別觸發，只有 1 個真的變成機械檢查；其餘都是同屬一類、但不是同一種錯誤。→ 升級改成計算 pattern（同一個錯誤），類別只看趨勢。
-5. **模型寫死在過時的價目表上。** `opusplan` 讓實作跑在 Sonnet 上，前提是 Opus 貴很多，所以前幾個里程碑很可能是 Sonnet 5 寫的。Opus 5.5 降價、Sonnet 5.5 推出之後，這個前提就不成立了。→ 套件不再指定模型，test-author 和 security-reviewer 沿用主模型，重新安裝時會移除舊的 `opusplan`。
+5. **模型寫死在過時的價目表上。** `opusplan` 讓實作跑在 Sonnet 上，前提是 Opus 貴很多，所以前幾個里程碑很可能是 Sonnet 5 寫的。Opus 5.5 降價、Sonnet 5.5 推出之後，這個前提就不成立了。→ 套件不再指定 session 的模型，test-author 和 security-reviewer 沿用主模型，重新安裝時會移除舊的 `opusplan`。
 
 另外，Stop hook 每一輪的秒數從沒被記錄過，所以 PASS 訊息現在會列出每一步的秒數。判斷這些修正有沒有效，要看 `/ship` 的量測紀錄和 `/retro`，不靠感覺：METR 2025 年的研究裡，開發者覺得自己快了 20%，實際上慢了 19%。
+
+## 18. 全局觀：主 session、產品與架構規則、需求變更（2026-09）
+
+§17 的修正讓流程變快，但還留下三個問題：scout 帶回來的資訊不完整，新功能沒有照著既有的架構寫，需求在做的過程中改變。這一節說明這三個問題的機制，以及套件的做法。
+
+### 18.1 子代理看不到全局
+
+一般的子代理啟動時，只拿到它自己的 system prompt、主模型寫給它的任務說明、CLAUDE.md 系列檔案和 git status。它看不到主對話，也看不到主模型讀過的檔案和做過的決定；內建的 Explore 和 Plan 連 CLAUDE.md 都不讀。所以子代理只知道任務說明裡寫的那一小塊，交回來的又是摘要。換成更強的模型也補不回這一點，因為缺的是資訊，不是能力。
+
+外部的證據指向同一個方向：
+
+- Anthropic 表示，大部分寫程式的工作不適合拆給多個代理，因為步驟之間互相依賴；多代理系統的 token 用量大約是一般對話的 15 倍。
+- Google Research（2026-01）發現，在需要循序推理的規劃工作上，他們測試的每一種多代理架構都讓表現下降 39% 到 70%。
+- Cognition（2026-04）的結論是：多個代理可以一起提供意見，但寫程式只由一個代理負責；另外，用全新 context 做 review 的代理效果很好。
+- Claude Code 的文件建議：規劃、實作和測試共用大量 context 時，留在主對話；輸出很長、需要限制工具，或能獨立交回摘要的工作，才交給子代理。
+
+套件的做法：
+
+- 計畫由主 session 自己讀程式來做。Opus 5.5 在 Max 上有 1M context，一般規模的專案，這次任務相關的程式都讀得下。
+- scout 只做窮舉搜尋（例如「所有用到 X 的地方」），回報位置和實際跑過的搜尋，不下結論。
+- 需要全局的旁支工作用 fork：Claude 透過 fork 子代理類型開，你也可以自己輸入 `/subtask <任務>`。fork 會繼承整段對話，而且沿用主對話的 prompt cache，比開一個全新的子代理便宜。
+- 子代理只留在需要獨立的地方：test-author 寫測試（出題的人不寫答案）、code review（全新的眼光）、security-reviewer（安全審查）。
+
+### 18.2 寫規則，不寫導覽
+
+需要跨 session 保留的理解，寫在 `.solo/architecture.md` 和 `.solo/product.md`。兩份都由 `CLAUDE.local.md` 匯入，所以每個 session、每個自訂子代理，以及內建的 `/code-review`（它會讀 CLAUDE.md）都會載入。內容要選對：2026 年的論文〈Evaluating AGENTS.md〉發現，把 repo 概覽放進 context 檔案，並沒有提高 coding agent 的成功率，推論成本反而增加 20% 以上；但檔案裡的具體指示會被遵守，對專案特有的慣例最有用。所以：
+
+- `architecture.md` 寫規則（A1…，每條註明範圍，以及由測試、lint 還是 review 負責檢查）、每種改動的標準做法和參考檔案，以及已知的例外，不寫目錄導覽。「照 X 檔案的模式做」也是 Anthropic best practices 建議的寫法。上限約 200 行。
+- `product.md` 寫角色、核心流程、產品規則（P1…）、不做的事和待決問題，不寫功能清單。上限約 120 行。
+
+`/architecture` 的初版由主 session 自己讀完整個專案寫出來，不交給子代理分區閱讀，因為「分區閱讀再彙整」正是會失去全局的做法；一個 context 讀不下時，才按 stack 分開做。
+
+### 18.3 新功能照著架構走
+
+新功能有沒有照著架構走，在三個時間點檢查，越早發現，修正越便宜：
+
+1. 規劃前：`/spec` 的「架構影響」寫出每種改動照哪個標準做法、參考哪個檔案。需要新做法、新依賴或規則的例外時，先問你，這是兩個核准點之一。
+2. 實作中：`/phase` 照參考檔案寫，commit 前再對照一次參考檔案和規則。能用工具檢查的規則，由 `/architecture` 提議改成測試：.NET 用 NetArchTest 或 ArchUnitNET，TypeScript 用 eslint-plugin-boundaries 或 dependency-cruiser。只寫在文件裡的規則遲早會被違反，寫成測試的不會。
+3. 出貨前：`/ship` 比對整個分支和 `architecture.md`；新出現、之後還會重複的改動種類，提議成新的標準做法。
+
+另一篇 2026 年的研究（兩個 agent 在真實 repo 上的消融實驗）發現，換 context 策略沒有明顯改變正確率，失敗多半出在實作本身：功能設計、選哪個做法、細節怎麼接。所以這裡靠明確的參考檔案、機械檢查和 review，而不是把更多說明塞進 context。
+
+### 18.4 需求分析與需求變更
+
+`/spec` 原本是一個任務一張卡，缺少產品層的共同背景，每個任務的訪談都得從頭問起。`/product` 用訪談建立 `product.md`，之後每張任務卡都對照它的產品規則。這一層刻意做小：Böckeler 實測 spec-driven 工具時，Kiro 修一個小 bug 就產出 4 個 user story 和 16 條驗收條件，她也寧可 review 程式碼，不想 review 大量 markdown；BMAD 的使用者則回報，各角色代理之間沒有共享 context，最後人自己變成協調者。所以這裡沒有 analyst、architect、PM 這類常駐代理，只有兩份短文件；除了 phase 計畫，核准點只有兩個：M/L 任務卡，以及新的架構做法。
+
+需求在做的過程中改變是常態，所以任務卡是會更新的文件，不是合約。規則是每一次改動都先寫進任務卡的 Change log，再動程式，這樣測試和 review 對照的永遠是最新版本。改動分三級處理：
+
+1. 在目前 phase 的範圍內、而且不改驗收條件：直接做，在 Change log 記一行，標明 `in scope`。
+2. 改到範圍或驗收條件：先更新 Change log、驗收條件和對應的測試，只重排還沒開始的 phase；目前的 phase 先做完、commit，除非新需求讓它白做。
+3. 其實是新功能：記進 inbox，之後再用 `/spec` 處理。
+
+Claude 只能提議修改驗收條件，不能自己改；SessionStart 會把 Change log 帶進新 session。
+
+### 18.5 還沒驗證的部分
+
+這一節的機制來自 Claude Code 的文件和上面的外部研究。selftest 只涵蓋 engine 的部分：Change log 的注入、安裝程式建立並匯入這兩份文件，以及舊版 `CLAUDE.local.md` 的升級。它們能不能讓新功能更一致、讓計畫少重做，要看 `/ship` 的量測紀錄、code review 的發現數和 `/retro`。
 
 ## 參考來源
 
@@ -422,4 +483,5 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - [Anthropic's Claude Code team has 5 roles（Aakash Gupta，第三方整理）](https://aakashgupta.medium.com/anthropics-claude-code-team-has-5-roles-and-zero-job-titles-bf4860a389fc)
 - §16：[Best practices for Claude Code](https://code.claude.com/docs/en/best-practices)、[Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence)、[Kent Beck: Augmented Coding](https://newsletter.kentbeck.com/p/augmented-coding-beyond-the-vibes)、[HumanLayer: Advanced Context Engineering](https://www.humanlayer.dev/blog/advanced-context-engineering)、[Beads Best Practices](https://steve-yegge.medium.com/beads-best-practices-2db636b9760c)、[DORA 2025](https://dora.dev/dora-report-2025/)、[Mitchell Hashimoto: My AI Adoption Journey](https://mitchellh.com/writing/my-ai-adoption-journey)、[OpenAI: Harness engineering](https://openai.com/index/harness-engineering/)、[Böckeler: Understanding Spec-Driven Development](https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html)、[Huntley: Ralph](https://ghuntley.com/ralph/)、[obra/superpowers](https://github.com/obra/superpowers)、[METR 2026 update](https://metr.org/blog/2026-02-24-uplift-update/)
 - §6、§17：[Models overview](https://platform.claude.com/docs/en/models/overview)、[Pricing](https://platform.claude.com/docs/en/about-claude/pricing)、[claude-code #72940（Explore 沿用主模型）](https://github.com/anthropics/claude-code/issues/72940)、[Spending your effort](https://claude.dev/blog/spending-your-effort/)
+- §18：[Create custom subagents](https://code.claude.com/docs/en/sub-agents)、[How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)、[Towards a science of scaling agent systems（Google Research）](https://research.google/blog/towards-a-science-of-scaling-agent-systems-when-and-why-agent-systems-work/)、[Don't Build Multi-Agents（Cognition）](https://cognition.com/blog/dont-build-multi-agents)、[Cognition 2026-04 的後續](https://cognition.com/blog/multi-agents-working)、[Evaluating AGENTS.md（arXiv 2602.11988）](https://arxiv.org/abs/2602.11988)、[Do Context Files Help Coding Agents?（arXiv 2607.27250）](https://arxiv.org/abs/2607.27250)、[matklad: ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html)、[5 architecture tests for .NET（Milan Jovanović）](https://milanjovanovic.tech/blog/5-architecture-tests-you-should-add-to-your-dotnet-projects)、[eslint-plugin-boundaries](https://www.jsboundaries.dev/docs/overview/)、[BMAD-METHOD issue #446](https://github.com/bmad-code-org/BMAD-METHOD/issues/446)
 - Claude Code 官方文件：[hooks](https://code.claude.com/docs/en/hooks)、[skills](https://code.claude.com/docs/en/skills)、[sub-agents](https://code.claude.com/docs/en/sub-agents)、[model-config](https://code.claude.com/docs/en/model-config)、[costs](https://code.claude.com/docs/en/costs)、[memory](https://code.claude.com/docs/en/memory)、[permissions](https://code.claude.com/docs/en/permissions)、[permission-modes](https://code.claude.com/docs/en/permission-modes)、[settings](https://code.claude.com/docs/en/settings)、[worktrees](https://code.claude.com/docs/en/worktrees)、[statusline](https://code.claude.com/docs/en/statusline)、[advisor](https://code.claude.com/docs/en/advisor)、[code-review](https://code.claude.com/docs/en/code-review)

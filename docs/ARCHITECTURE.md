@@ -95,11 +95,12 @@ This principle also corrects the direction of the predecessor harness: "keep qua
                     prototyper (Sonnet)
    ───────────────────────────────────────────────────────────────────────────────────────
    Memory: ~/.claude/CLAUDE.md · CLAUDE.local.md · .solo/rules · skills (loaded on demand)
+          · .solo/product.md (product rules) · .solo/architecture.md (architecture rules and recipes)
           · .solo/tasks (task state) · .solo/ledger.json (mistake counts) · .solo/decisions.md
           · .solo/security.md (threat model)
 ```
 
-"Strong model at compile time, weak model at run time" is a principle of the predecessor harness (see §11), and here it becomes the basis for how models are assigned: work that needs judgment (planning, implementation, tests, security review) uses the strong default model, only searches and throwaway prototypes use Sonnet, and the most frequent judgments go to scripts that cost no tokens. Early versions hard-coded `opusplan` (Sonnet for implementation) and Haiku for reconnaissance, because Opus cost much more at the time; that premise no longer holds (see §6.1, §17).
+The big picture stays in the main session: a subagent starts with only its task message and never sees the conversation, so analysis, design and planning happen in the main session, which reads the code itself, while subagents take only work that needs independence, such as searching, writing tests and reviewing (see §18). "Strong model at compile time, weak model at run time" is a principle of the predecessor harness (see §11), and here it becomes the basis for how models are assigned: work that needs judgment (planning, implementation, tests, security review) uses the strong default model, only searches and throwaway prototypes use Sonnet, and the most frequent judgments go to scripts that cost no tokens. Early versions hard-coded `opusplan` (Sonnet for implementation) and Haiku for reconnaissance, because Opus cost much more at the time; that premise no longer holds (see §6.1, §17).
 
 | What Anthropic does | The one-person version |
 |---|---|
@@ -118,13 +119,14 @@ This principle also corrects the direction of the predecessor harness: "keep qua
 
 | Step | Who and which model | What you do | Cost control |
 |---|---|---|---|
-| 1. `/spec` (in a fresh session) | Opus | Answer product questions (at most 3 for S/M; an interview, one topic at a time, for L or vague requests) and confirm the acceptance criteria | The context is tiny, so switching models here costs almost nothing |
-| 2. Plan mode (M and up) | Opus | Read the phase plan (about 150 lines at most), approve or correct it | Wide exploration goes to scout (Sonnet, which returns only locations and searches) |
-| 3. `/phase` (once per phase) | test-author writes this phase's tests first, then the main session implements it (both on the default model) | Read the test names and assertions: this is the highest-leverage review; in shared repos you commit yourself | The Stop hook verifies automatically; the review gate measures only this phase's diff |
+| 0. `/product`, `/architecture` (now and then) | Opus; the main session reads the code itself | Answer the product interview; approve the product rules, architecture rules and recipes | Once per project, then small updates; `/architecture` uses a lot of context, so `/clear` afterwards |
+| 1. `/spec` (in a fresh session) | Opus | Answer product questions (at most 3 for S/M; an interview, one topic at a time, for L or vague requests); approve the card of an M or L task, and any new architectural pattern | The context is tiny, so switching models here costs almost nothing; the main session reads the relevant code itself, and the scout only runs exhaustive searches |
+| 2. Plan mode (M and up) | Opus | Read the phase plan (about 150 lines at most, each phase naming the recipe it follows), approve or correct it | Side tasks that need the big picture run as a fork, which reuses the prompt cache |
+| 3. `/phase` (once per phase) | test-author writes this phase's tests first, then the main session implements it by the reference file (both on the default model) | Read the test names and assertions: this is the highest-leverage review; in shared repos you commit yourself | The Stop hook verifies automatically; the phase is compared with its reference file before the commit; the review gate measures only this phase's diff |
 | 4. `/ship` (after the last phase) | The main session plus the runner; in `/secure`, security-reviewer reviews the whole branch in a fresh context | Read the security review report, `ship.md` and the diff of high-risk paths | Code review already happened in each phase; the security review runs once per task |
 | 5. `/learn` | Default model | Approve changes to memory and rules | At most 5 per run |
 
-When context usage passes 50–60%, or you are leaving for more than an hour, run `/handoff` and then `/clear`. When the new session starts, the SessionStart hook loads the task card, the current phase and progress automatically.
+When context usage passes 50–60%, or you are leaving for more than an hour, run `/handoff` and then `/clear`. When the new session starts, the SessionStart hook loads the task card (with its Change log), the current phase and progress automatically. When a requirement changes mid-build, Claude sorts the change first (see §18.4).
 
 ### Example: a date-range filter for the order list (Angular + ASP.NET Core)
 
@@ -145,6 +147,8 @@ The principle: the more often a layer is loaded, the shorter it must be; the mor
 | Personal | `~/.claude/CLAUDE.md` | Every session | Language, communication style, general principles | Any project detail |
 | The team's project layer | `CLAUDE.md` in the repo (if the team has one) | Every session | The team's conventions | The kit never edits it |
 | Your project layer | `CLAUDE.local.md` | Every session | Commands, a directory map, workflow, Gotchas | Rules a linter can check |
+| Product rules | `.solo/product.md` (imported by `CLAUDE.local.md`) | Every session and every custom subagent | Roles, core flows, product rules (P1…), what it does not do, open questions; about 120 lines at most | A feature list |
+| Architecture rules | `.solo/architecture.md` (imported by `CLAUDE.local.md`) | Every session and every custom subagent | Rules (A1…), the recipe and reference file for each kind of change, known deviations; about 200 lines at most | A directory tour, anything the code already shows |
 | Framework rules | `.solo/rules/*.md` (imported by `CLAUDE.local.md`) | Every session | Framework and language rules | Rules for the whole project |
 | Workflows | `~/.claude/skills/*/SKILL.md` | When called; for user-invoked-only skills, not even the description is loaded | Steps for doing things | Project facts |
 | Task state | `.solo/tasks/<slug>/` | SessionStart injects the task card, the current phase and progress | spec, plan, progress, evidence | Long-term knowledge |
@@ -155,7 +159,7 @@ The principle: the more often a layer is loaded, the shorter it must be; the mor
 
 Auto memory is a built-in Claude Code feature. The split with `/learn` is this: auto memory holds the notes Claude jots down for itself, while `/learn` produces formal rules you have approved. `/refresh` reminds you to check the size of auto memory with `/memory`.
 
-What the kit keeps resident in context (the `CLAUDE.local.md` template, the imported framework rules, the descriptions of the three auto-invocable skills and of the four subagents) totals about 1,500 tokens or less. For comparison, the Claude Code team's own CLAUDE.md is about 2,500 tokens.
+What the kit keeps resident in context (the `CLAUDE.local.md` template, the imported framework rules, the stub versions of `product.md` and `architecture.md`, the descriptions of the three auto-invocable skills and of the four subagents) totals about 2,000 tokens (estimated as characters divided by 4). For comparison, the Claude Code team's own CLAUDE.md is about 2,500 tokens. Once `product.md` and `architecture.md` are written, every session carries roughly 3,000 to 5,000 tokens more. That is a deliberate trade: every session and subagent starts from the same rules in exchange, which is why both files have a line cap and `/refresh` prunes them.
 
 ## 5. Verification and quality
 
@@ -208,7 +212,7 @@ The cost is that the strong model reads the whole branch once per task, and on a
 
 ### 6.1 Facts (per the official docs, 2026-09; models and prices rechecked on 2026-09-29)
 
-- For Pro, Max and Team, Claude Code's default model is Opus 5.5, with effort set to medium by default. The kit no longer sets a model, so it uses this default.
+- For Pro, Max and Team, Claude Code's default model is Opus 5.5, with effort set to medium by default. The kit no longer sets the session's model, so it uses this default; only `/spec`, `/product`, `/architecture` and `/refresh` pin Opus.
 - `opusplan`: Opus in plan mode, Sonnet the rest of the time (Sonnet 5.5 since 2026-09-28). When usage is tight, you can use `/model opusplan`.
 - API prices (per million tokens, input/output): Fable 5.1 $10/$50, Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 4.5 $1/$5 (200K context, still the latest Haiku). How subscription usage converts to these prices has not been published, so API prices are only a rough guide.
 - The official advice is to start most work with Opus 5.5, and to use Fable 5.1 only for high-intensity reasoning, long-running agentic work, or when Opus at a higher effort is still not enough.
@@ -345,7 +349,7 @@ Existing skills can coexist. A design-reference skill can suggest UI directions 
 - **Line endings must be LF.** The installer parses templates with `\n`-anchored regexes. For git clones, `.gitattributes` guarantees LF; a file copied some other way and converted to CRLF keeps the rules templates' front matter from being stripped.
 - **The cost of the security review.** `/secure` has the strong model read the whole branch once per task, and on a large branch its attention thins out. The countermeasures are keeping tasks small (phases) and mechanizing repeated rules.
 - **The phase loop and `/secure` have not been measured on real tasks yet.** They were derived from one real project's records (see §17); whether they work will show in `/ship`'s metrics line and in `/retro`.
-- **Scope of verification.** The selftest passed on Linux when the kit was built (67 checks at the time) and natively on Windows 11 on 2026-09-28; CI now runs all 75 checks on every push on Ubuntu and Windows × Node 18/22. The full workflow was also run on a real TypeScript project (eslint, tsc, vitest, Prettier) and on an Angular 22 project (§15). macOS has never been run.
+- **Scope of verification.** The selftest passed on Linux when the kit was built (67 checks at the time), and all 82 checks passed natively on Windows 11 and on Linux on 2026-09-29; CI now runs all 82 checks on every push on Ubuntu and Windows × Node 18/22. The full workflow was also run on a real TypeScript project (eslint, tsc, vitest, Prettier) and on an Angular 22 project (§15). macOS has never been run.
 - **How much usage it saves is not yet quantified.** Measure it yourself with the attribution in `/usage` and the statusline.
 - **Claude Code changes fast.** Most features the kit relies on arrived after v2.1.2xx; run `claude update` before installing.
 - **Anthropic's published figures** (80% of merged code, 8× merges per person, 200% output growth) are mostly self-reported and counted in lines. This architecture doesn't chase them and doesn't use lines of code as a metric.
@@ -403,9 +407,66 @@ A real project (a mobile app plus a .NET API) finished four milestones with the 
 2. **The generic security scan did nothing.** It ran more than ten times without a finding, and the real authorization hole was caught by code review. → `/secure` (§5.4): one careful review of the whole branch, with the project's threat model as the full picture.
 3. **scout miscounted, yet the plan was built on its summary.** There were 2 occurrences in the same file, and Haiku found only 1. → scout now uses Sonnet and returns only locations and the searches it actually ran, not conclusions; counts and "nothing else uses this" are confirmed by the main model with its own grep.
 4. **The ledger escalated falsely.** ESCALATE fired in 5 categories, and only 1 of them actually became a mechanical check; the rest were mistakes that shared a category but were not the same mistake. → Escalation now counts patterns (the same mistake), and categories only show trends.
-5. **Models were hard-coded to an outdated price list.** `opusplan` ran implementation on Sonnet, on the premise that Opus cost much more, so the first few milestones were most likely written by Sonnet 5. Once Opus 5.5 got cheaper and Sonnet 5.5 came out, that premise no longer held. → The kit no longer sets a model, test-author and security-reviewer inherit the main model, and a reinstall removes the old `opusplan`.
+5. **Models were hard-coded to an outdated price list.** `opusplan` ran implementation on Sonnet, on the premise that Opus cost much more, so the first few milestones were most likely written by Sonnet 5. Once Opus 5.5 got cheaper and Sonnet 5.5 came out, that premise no longer held. → The kit no longer sets the session's model, test-author and security-reviewer inherit the main model, and a reinstall removes the old `opusplan`.
 
 Also, the Stop hook's seconds per turn had never been recorded, so the PASS message now lists the seconds for each step. Whether these revisions work is judged from `/ship`'s metrics line and from `/retro`, not by feel: in METR's 2025 study, developers felt 20% faster but were actually 19% slower.
+
+## 18. The big picture: the main session, product and architecture rules, requirement changes (2026-09)
+
+The revisions in §17 made the loop faster but left three problems: the scout brought back incomplete information, new features were not built the way existing ones were, and requirements changed mid-build. This section explains the mechanism behind each and what the kit does about it.
+
+### 18.1 A subagent never sees the whole
+
+A regular subagent starts with its own system prompt, the task message the main model writes for it, the CLAUDE.md files and git status. It does not see the main conversation, the files the main model has read, or the decisions it has made; the built-in Explore and Plan agents skip even CLAUDE.md. So a subagent knows only the slice its task message describes, and what it returns is a summary. A stronger model cannot make up for that, because what is missing is information, not ability.
+
+Outside evidence points the same way:
+
+- Anthropic says most coding work fits multi-agent setups poorly, because its steps depend on each other; multi-agent systems use about 15 times the tokens of a chat.
+- Google Research (2026-01) found that on planning tasks that need strict sequential reasoning, every multi-agent variant it tested lowered performance by 39 to 70 percent.
+- Cognition (2026-04) concluded that several agents may contribute ideas, but writes should stay with a single agent, and that a review agent with a completely fresh context works well.
+- Claude Code's documentation recommends keeping work in the main conversation when planning, implementation and testing share a lot of context, and handing a subagent only work that produces verbose output, needs restricted tools, or can return a self-contained summary.
+
+What the kit does:
+
+- The main session reads the code and plans itself. Opus 5.5 has a 1M context on Max, so for a project of ordinary size the code a task touches fits.
+- The scout only runs exhaustive searches (such as "every place that uses X"), returning locations and the searches it ran, not conclusions.
+- A side task that needs the big picture runs as a fork: Claude starts one through the fork subagent type, and you can type `/subtask <task>` yourself. A fork inherits the whole conversation and reuses its prompt cache, so it costs less than a fresh subagent.
+- Subagents stay only where independence is the point: test-author writes the tests (whoever writes the exam does not write the answers), code review brings fresh eyes, and security-reviewer does the security review.
+
+### 18.2 Rules, not a tour
+
+Understanding that must survive across sessions lives in `.solo/architecture.md` and `.solo/product.md`. Both are imported by `CLAUDE.local.md`, so every session, every custom subagent and the built-in `/code-review` (which follows CLAUDE.md) load them. What goes in matters: the 2026 paper "Evaluating AGENTS.md" found that repository overviews in context files did not raise coding agents' success rates and raised inference cost by more than 20 percent, while concrete instructions in those files were followed and helped most for a project's own non-standard practices. Therefore:
+
+- `architecture.md` holds rules (A1…, each with its scope and whether a test, lint rule or review enforces it), the recipe and reference file for each kind of change, and the known deviations, not a directory tour. "Follow the pattern in file X" is also how Anthropic's best practices phrase it. About 200 lines at most.
+- `product.md` holds roles, core flows, product rules (P1…), what the product does not do, and open questions, not a feature list. About 120 lines at most.
+
+The first version of `architecture.md` comes from the main session reading the whole codebase itself, not from subagents reading it in slices, because reading in slices and merging the summaries is exactly how the big picture gets lost; only when the code does not fit in one context is the review split by stack.
+
+### 18.3 New features follow the architecture
+
+Whether a new feature follows the architecture is checked at three points, and the earlier a drift is caught, the cheaper it is to fix:
+
+1. Before planning: the architecture-impact step of `/spec` names the recipe and reference file for each kind of change. A new pattern, a new dependency or an exception to a rule is put to you first; this is one of the two approval points.
+2. During the work: `/phase` follows the reference file and compares the phase with it and with the rules before the commit. Rules a tool can check are proposed as tests by `/architecture`: NetArchTest or ArchUnitNET for .NET, eslint-plugin-boundaries or dependency-cruiser for TypeScript. A rule that exists only in a document gets broken sooner or later; a rule that is a test does not.
+3. Before shipping: `/ship` compares the whole branch with `architecture.md`, and a new kind of change that will recur is proposed as a new recipe.
+
+Another 2026 study, an ablation with two agents on real repositories, found that the context strategy did not measurably change correctness, and that failures came from the implementation itself: feature design, pattern selection and exact wiring. That is why the kit relies on explicit reference files, mechanical checks and review rather than on more explanation in context.
+
+### 18.4 Requirements analysis and requirement changes
+
+`/spec` used to be one card per task with no product-level background, so every task's interview started from zero. `/product` builds `product.md` through an interview, and every task card is then checked against its product rules. The layer is kept small on purpose: when Böckeler tried spec-driven tools, Kiro turned one small bug fix into 4 user stories and 16 acceptance criteria, and she would rather review code than that much markdown; BMAD users reported that the role agents share no context, so the human ends up as the coordinator. So there are no resident analyst, architect or PM agents here, only two short files and, besides the phase plan, two approval points: the card of an M or L task, and a new architectural pattern.
+
+Requirements changing mid-build is normal, so the task card is a living document, not a contract. The rule is that every change goes into the card's Change log before the code changes, so tests and reviews always compare against the current version. Changes fall into three levels:
+
+1. Inside the current phase, with no acceptance line changing: do it, and add one line to the Change log marked `in scope`.
+2. It changes the scope or an acceptance line: update the Change log, the acceptance lines and their tests first, and re-plan only the phases not started; the current phase is finished and committed first, unless the change makes it moot.
+3. It is really a new feature: it goes to the inbox for a later `/spec`.
+
+Claude may only propose an acceptance change, never make one on its own, and SessionStart carries the Change log into new sessions.
+
+### 18.5 What is not verified yet
+
+These mechanisms rest on Claude Code's documentation and the outside research above. The selftest covers only their engine parts: injecting the Change log, the installer creating and importing the two files, and upgrading an older `CLAUDE.local.md`. Whether they make new features more consistent and plans less often redone will show in `/ship`'s metrics line, the number of code-review findings, and `/retro`.
 
 ## Sources
 
@@ -424,4 +485,5 @@ Also, the Stop hook's seconds per turn had never been recorded, so the PASS mess
 - [Anthropic's Claude Code team has 5 roles (Aakash Gupta, third-party summary)](https://aakashgupta.medium.com/anthropics-claude-code-team-has-5-roles-and-zero-job-titles-bf4860a389fc)
 - §16: [Best practices for Claude Code](https://code.claude.com/docs/en/best-practices), [Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence), [Kent Beck: Augmented Coding](https://newsletter.kentbeck.com/p/augmented-coding-beyond-the-vibes), [HumanLayer: Advanced Context Engineering](https://www.humanlayer.dev/blog/advanced-context-engineering), [Beads Best Practices](https://steve-yegge.medium.com/beads-best-practices-2db636b9760c), [DORA 2025](https://dora.dev/dora-report-2025/), [Mitchell Hashimoto: My AI Adoption Journey](https://mitchellh.com/writing/my-ai-adoption-journey), [OpenAI: Harness engineering](https://openai.com/index/harness-engineering/), [Böckeler: Understanding Spec-Driven Development](https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html), [Huntley: Ralph](https://ghuntley.com/ralph/), [obra/superpowers](https://github.com/obra/superpowers), [METR 2026 update](https://metr.org/blog/2026-02-24-uplift-update/)
 - §6, §17: [Models overview](https://platform.claude.com/docs/en/models/overview), [Pricing](https://platform.claude.com/docs/en/about-claude/pricing), [claude-code #72940 (Explore inherits the main model)](https://github.com/anthropics/claude-code/issues/72940), [Spending your effort](https://claude.dev/blog/spending-your-effort/)
+- §18: [Create custom subagents](https://code.claude.com/docs/en/sub-agents), [How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system), [Towards a science of scaling agent systems (Google Research)](https://research.google/blog/towards-a-science-of-scaling-agent-systems-when-and-why-agent-systems-work/), [Don't Build Multi-Agents (Cognition)](https://cognition.com/blog/dont-build-multi-agents), [Cognition's 2026-04 follow-up](https://cognition.com/blog/multi-agents-working), [Evaluating AGENTS.md (arXiv 2602.11988)](https://arxiv.org/abs/2602.11988), [Do Context Files Help Coding Agents? (arXiv 2607.27250)](https://arxiv.org/abs/2607.27250), [matklad: ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html), [5 architecture tests for .NET (Milan Jovanović)](https://milanjovanovic.tech/blog/5-architecture-tests-you-should-add-to-your-dotnet-projects), [eslint-plugin-boundaries](https://www.jsboundaries.dev/docs/overview/), [BMAD-METHOD issue #446](https://github.com/bmad-code-org/BMAD-METHOD/issues/446)
 - Claude Code docs: [hooks](https://code.claude.com/docs/en/hooks), [skills](https://code.claude.com/docs/en/skills), [sub-agents](https://code.claude.com/docs/en/sub-agents), [model-config](https://code.claude.com/docs/en/model-config), [costs](https://code.claude.com/docs/en/costs), [memory](https://code.claude.com/docs/en/memory), [permissions](https://code.claude.com/docs/en/permissions), [permission-modes](https://code.claude.com/docs/en/permission-modes), [settings](https://code.claude.com/docs/en/settings), [worktrees](https://code.claude.com/docs/en/worktrees), [statusline](https://code.claude.com/docs/en/statusline), [advisor](https://code.claude.com/docs/en/advisor), [code-review](https://code.claude.com/docs/en/code-review)

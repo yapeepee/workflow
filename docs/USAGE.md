@@ -17,7 +17,7 @@ How to install it, use it day to day, configure it and troubleshoot it. The desi
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # should print 75/75 passed
+node selftest.mjs              # should print 82/82 passed
 node install.mjs --user-only   # skills, subagents, status line, personal CLAUDE.md → ~/.claude
 ```
 
@@ -44,8 +44,9 @@ If you use Claude Code inside WSL, do this section inside WSL too: Windows and W
 | 3. Read the Notes | — | Missing tools (ESLint, a test framework, a Prettier config file) and an incomplete `node_modules` are listed here; the more is missing, the less the automatic checks can do |
 | 4. Full check (project folder) | `node .solo/engine/check.mjs --stage full` | All PASS means you can start working |
 | 5. The project already has errors | `node .solo/engine/check.mjs --update-baseline` | Existing errors are recorded as known issues; from then on only new errors block |
-| 6. Describe the project | Tell Claude: "Use scout to read this repo and fill in the TODOs in CLAUDE.local.md. Keep it under 150 lines and show me the diff first." | The team's `CLAUDE.md` loads alongside it; the kit never touches the team's files |
-| 7. Start working | Open the project root in VS Code (or run `claude` at the root) and type `/spec <request>` | |
+| 6. Write the architecture rules | `/architecture` | The main session reads the whole codebase itself and writes `.solo/architecture.md` (rules, the recipe and reference file for each kind of change, known deviations) once you approve; the review report and the improvement items go straight into `.solo/`. It also proposes the TODO lines of `CLAUDE.local.md`. This uses a lot of context, so `/clear` afterwards |
+| 7. Product rules (projects of your own) | `/product` | Builds `.solo/product.md` through an interview: roles, core flows, product rules, what it does not do. Skip it in a team's project |
+| 8. Start working | Open the project root in VS Code (or run `claude` at the root) and type `/spec <request>` | The team's `CLAUDE.md` loads alongside your `CLAUDE.local.md`; the kit never touches the team's files |
 
 `CLAUDE.local.md` always carries one rule: never commit or push unless you explicitly ask. A shared repo adds another: follow the team's existing conventions and never add kit-specific comments to the code.
 
@@ -88,9 +89,10 @@ git init
 |---|---|
 | 1. Install (kit folder) | `node install.mjs "D:\work\shop"` (use the new project's path) |
 | 2. Full check (project folder) | `node .solo/engine/check.mjs --stage full`; a new project should pass everything, with no baseline needed |
-| 3. Record the first decisions | Write the framework version, state management approach and styling strategy in `.solo/decisions.md`; `/spec` reads it when planning |
+| 3. Product rules and first decisions | Run `/product` to build `.solo/product.md` through an interview; write the framework version, state management approach and styling strategy in `.solo/decisions.md`. `/spec` reads both when planning |
 | 4. Turn on token-guard from day one | Add `"tokenGuard": { "enabled": true }` to `.solo/config.json` and define tokens in Tailwind v4's `@theme`; a new project has no old violations, so this is the cheapest moment |
-| 5. First task | Build a minimal end-to-end feature (for example one page plus one API) to confirm that `/spec` → plan mode → `/test-first` → `/check` → `/ship` works in this project |
+| 5. First task | Build a minimal end-to-end feature (for example one page plus one API) to confirm that `/spec` → plan mode → `/phase` → `/ship` works in this project |
+| 6. Make the first feature the recipe | Run `/architecture`: it writes this feature up as the first rules and reference files, and later features follow them |
 
 If you installed the kit before creating the project, run `node install.mjs "<repo>" --reconfigure` once.
 
@@ -108,24 +110,45 @@ M (a few files or modules)
 
 L (cross-cutting, or more than a day)
   /spec splits it into M tasks first
+
+Project level (now and then)
+  /product       product rules (P1…): who uses it, core flows, what it does not do
+  /architecture  architecture rules (A1…), the recipe and reference file for each kind of change
+  every task's /spec, /phase and /ship checks against both
 ```
+
+Besides the phase plan, you approve at two points: the task card of an M or L task, and anything that needs a new architectural pattern (a new way of doing something, a new dependency, an exception to a rule). A change to an acceptance line also waits for you. Before planning, /spec checks the architecture impact: which recipe each kind of change follows, and which reference file. While architecture.md is not written yet, it takes the closest existing feature as the reference and proposes adding that recipe.
 
 Each `/phase`: tests for this phase only → implement → check → code review (only when this phase's diff is large or risky) → commit → mark it done in plan.md. `/ship` runs once, after the last phase: the full check, the test guard, `/secure` (a security review of the whole branch) and a check against the architecture decisions, and then it writes `ship.md`.
 
 For a complete example (who does each step, with which model, and what you review), see [ARCHITECTURE §3](ARCHITECTURE.md).
 
+### Adding or changing a requirement mid-build
+
+Just tell Claude. It first decides which level the change belongs to, then handles it accordingly:
+
+1. **Inside the current phase, with no acceptance line changing**, such as a wording change: Claude does it and adds one line to the task card's Change log, marked `in scope`.
+2. **It changes the scope or an acceptance line**: Claude first adds a line to the task card's Change log, updates the affected acceptance lines and their tests, then re-plans the phases not started yet. The current phase is finished and committed first, unless the change makes it moot.
+3. **It is really a new feature**: Claude adds it to `.solo/inbox.md` for a later `/spec`, without interrupting the current phase.
+
+Claude never changes an acceptance line on its own; it proposes the change and waits for you. A change to a product rule also updates `product.md` and `decisions.md`. New sessions receive the Change log automatically, so nothing is lost after `/clear`.
+
 ## 5. Situation → command
 
 | Situation | Command | What happens |
 |---|---|---|
-| A new feature or a change in requirements | `/spec <request>` | Writes a task card with acceptance criteria that can be checked mechanically; for L tasks or vague requests, it interviews you one question at a time |
+| A project of your own starts, or a product rule changes | `/product [focus]` | Builds or updates `.solo/product.md` through an interview |
+| You just took over an existing project, or want to know whether its architecture holds up | `/architecture` | The main session reads the whole codebase and writes the rules, recipes and reference files, listing problems and rules a tool could check; `/clear` afterwards |
+| You want to know whether the current changes drift from the architecture | `/architecture check [base]` | Compares only the changes with `architecture.md`: violations, new patterns that need a decision, rules that are out of date |
+| A new feature or a change in requirements | `/spec <request>` | Writes a task card with numbered acceptance criteria that can be checked mechanically, checked against the product rules and recipes; for L tasks or vague requests, it interviews you one question at a time; M and L cards need your approval |
+| Adding or changing a requirement mid-build | Just tell Claude | Claude sorts it first (see §4): inside the phase, it just does it; an acceptance change updates the card's Change log and its tests first; a new feature goes to the inbox |
 | Not sure what to do next | `/spec` (no request) | Picks three items from `.solo/inbox.md` and suggests them |
 | Planning an M task | `/clear`, then Shift+Tab | The new session loads the task card automatically; the plan is a few short phases, saved as `plan.md` once you approve it |
-| Doing the next phase of an M task | `/phase` | Tests for this phase only → implement → check → code review when needed → commit → mark it done |
+| Doing the next phase of an M task | `/phase` | Tests for this phase only → implement by the recipe → check → compare with the reference file → code review when needed → commit → mark it done |
 | Writing the tests for one phase first, on their own | `/test-first [n]` | A separate subagent writes failing tests first (`/phase` already includes this step); you only review the test names |
 | A bug | `/bugfix <symptom>` | Reproduces it, finds the root cause, adds a regression test, and only then fixes it |
 | You think it's done | `/check` | Runs the full lint, type check, tests and build |
-| Handing it over (after the last phase) | `/ship` | Runs the full check, `/secure` and a check against the architecture decisions; in a shared repo it only writes the commit plan and PR description to `ship.md`, and you commit yourself |
+| Handing it over (after the last phase) | `/ship` | Runs the full check, `/secure`, a check against the architecture decisions and `architecture.md`, and maps every acceptance line to its proof; in a shared repo it only writes the commit plan and PR description to `ship.md`, and you commit yourself |
 | You want a security review early | `/secure [focus]` | Reviews the whole branch carefully against `.solo/security.md`; on the first run, it builds that threat model with you |
 | You want Claude to commit or open the PR | `/ship commit` or `/ship pr` | Asks you before every commit and push |
 | End of a task | `/learn` | Records the lessons; when the same mistake (pattern) shows up a third time, it becomes a mechanical check |
@@ -137,7 +160,7 @@ For a complete example (who does each step, with which model, and what you revie
 | Every Friday | `/sweep` | Deletes dead code and unused dependencies; never commits in a shared repo |
 | After a new model ships | `/refresh` | Deletes rules that are no longer needed |
 
-Subagents: `scout` (Sonnet, read-only; Claude uses it when it needs to read many files, and it reports only locations and the searches it actually ran, never conclusions), `test-author` (inherits the main model; called by `/phase` or `/test-first`; writes the tests for one phase only, never production code), `security-reviewer` (inherits the main model; called by `/secure`; reviews the whole branch carefully), `prototyper` (Sonnet; called by `/proto`; one per direction).
+The main session reads the code, analyses and designs itself, because a subagent starts with only its task message and never sees your conversation. A side task that needs the big picture runs as a fork: `/subtask <task>` inherits the whole conversation and reuses the prompt cache. Subagents: `scout` (Sonnet, read-only; exhaustive searches only, such as "every place that uses X"; it reports only locations and the searches it actually ran, never conclusions), `test-author` (inherits the main model; called by `/phase` or `/test-first`; writes the tests for one phase only, never production code), `security-reviewer` (inherits the main model; called by `/secure`; reviews the whole branch carefully), `prototyper` (Sonnet; called by `/proto`; one per direction).
 
 ## 6. What happens without a command
 
@@ -146,13 +169,14 @@ Subagents: `scout` (Sonnet, read-only; Claude uses it when it needs to read many
 - When a test is deleted, commented out, marked skip, or loses assertions, Claude is blocked once and must explain why; after that, every PASS message keeps listing those files.
 - When the only cause of a failure is broken dependencies (for example a `node_modules` that is not installed properly), Claude is not blocked; you are told which restore command to run instead.
 - When Claude notices a problem unrelated to the task, it writes it to `.solo/inbox.md` instead of dealing with it on the spot.
-- After a new session, `/clear` or a compact, the current task card, the current phase and progress load automatically.
+- After a new session, `/clear` or a compact, the current task card (with its Change log), the current phase and progress load automatically.
+- Every session and every custom subagent loads `.solo/product.md` and `.solo/architecture.md` (imported by `CLAUDE.local.md`); the built-in `/code-review` sees them too. Until they are written, each is two lines naming the command that builds it.
 - The status line always shows: `Opus · ctx 34% · 5h 23% (resets 14:00) · 7d 41% · main* · task:login-form`.
 
 ## 7. Usage and interruptions
 
 - In the status line, `ctx` is the context this session has used, and `5h` and `7d` are usage; each turns yellow at 50% and red at 80%. When `ctx` reaches 60%, the status line prompts you to run `/handoff` and then `/clear`.
-- Model: the kit does not pin a model; it uses Claude Code's default (as of 2026-09, Opus 5.5 at medium effort on Max). When usage runs tight, use `/model opusplan` (Opus plans, Sonnet implements).
+- Model: the kit does not pin the session's model; it uses Claude Code's default (as of 2026-09, Opus 5.5 at medium effort on Max). When usage runs tight, use `/model opusplan` (Opus plans, Sonnet implements). `/spec`, `/product`, `/architecture` and `/refresh` set `model: opus`, so they run on Opus whichever model the session uses.
 - On the Max 5x plan, run at most 2 implementation sessions at a time, each in its own worktree (`claude -w <name>`).
 - If you have corrected the same thing twice and it is still wrong, run `/clear` and start again, with what you learned written into the new prompt.
 - When Claude starts going in circles, builds something you did not ask for, or wants to change the tests, press Esc to interrupt.
@@ -161,9 +185,9 @@ Subagents: `scout` (Sonnet, read-only; Claude uses it when it needs to read many
 
 | Location | Contents | Who can see it |
 |---|---|---|
-| `~/.claude/skills/`, `~/.claude/agents/` | 13 skills, 4 subagents | Only you; not in any repo |
+| `~/.claude/skills/`, `~/.claude/agents/` | 15 skills, 4 subagents | Only you; not in any repo |
 | `~/.claude/CLAUDE.md`, `~/.claude/solo-statusline.mjs` | Personal defaults, the usage status line | Only you |
-| `<repo>/.solo/` | engine, `config.json`, `rules/`, `ledger.json`, `decisions.md`, `inbox.md`, `security.md` (the threat model), task state, logs, baselines | Only you (excluded through `.git/info/exclude`) |
+| `<repo>/.solo/` | engine, `config.json`, `rules/`, `ledger.json`, `decisions.md`, `inbox.md`, `product.md` (product rules), `architecture.md` (architecture rules and recipes), `architecture-review-*.md` (review reports), `security.md` (the threat model), task state, logs, baselines | Only you (excluded through `.git/info/exclude`) |
 | `<repo>/CLAUDE.local.md` | Your instructions for this project | Only you (Claude Code's standard personal file name, also excluded) |
 | `<repo>/.claude/settings.local.json` | hooks, model, permissions | Only you (Claude Code's standard personal settings file, also excluded) |
 | `<repo>/.worktreeinclude` | Makes `claude -w` worktrees get the private files above too | Only you (excluded; not created when the team already has this file) |
@@ -171,7 +195,7 @@ Subagents: `scout` (Sonnet, read-only; Claude uses it when it needs to read many
 | `<repo>/.git/info/exclude` | Exclude rules for the paths above (appended as a `# solo-ai-team` block) | Only you (it lives in `.git/`, which git never commits or pushes) |
 
 - If the team later commits its own `CLAUDE.md`, `.claude/settings.json` or `.claude/skills/`, you pull as usual without conflicts, and both sets of settings apply.
-- The cost: private files are not in git, so they have no version history and do not follow you to a new computer or a fresh clone. Once `CLAUDE.local.md`, `.solo/decisions.md` and `.solo/ledger.json` have built up content, back them up yourself now and then.
+- The cost: private files are not in git, so they have no version history and do not follow you to a new computer or a fresh clone. Once `CLAUDE.local.md`, `.solo/product.md`, `.solo/architecture.md`, `.solo/decisions.md` and `.solo/ledger.json` have built up content, back them up yourself now and then.
 - Git treats ignored files as expendable: if a teammate ever commits a `CLAUDE.local.md` or `.claude/settings.local.json` with the same name, `git pull` silently replaces yours with theirs. So at every session start the kit backs up those two files to `.solo/backup/`; when it finds they have become tracked files, it has Claude tell you in its first sentence and stops editing them.
 - The code Claude changes at your request (features, bug fixes, tests) stays in the working tree, of course: that is the work itself. It shows up in `git status`, and whether to commit it is up to you.
 
@@ -201,7 +225,7 @@ Remember in a shared repo:
 |---|---|---|
 | You added ESLint, a Prettier config or a test framework | `node install.mjs "D:\work\team-app" --reconfigure` (re-detects `stacks` and keeps other settings such as tokenGuard and ship; the old file is backed up as `.solo/config.backup.json`) | kit folder |
 | Other people start committing to the repo | `node install.mjs "D:\work\team-app" --shared --reconfigure` | kit folder |
-| The kit was updated | `node install.mjs --user-only --force`, then for each project `node install.mjs "D:\work\team-app" --force` (`CLAUDE.local.md`, `config.json` and rules are never overwritten; `settings.local.json` is merged: older kit hooks are replaced and your own hooks are kept; the `opusplan` setting that older versions wrote is removed, and Claude Code's default model is used instead) | kit folder |
+| The kit was updated | `node install.mjs --user-only --force`, then for each project `node install.mjs "D:\work\team-app" --force` (`CLAUDE.local.md`, `config.json`, rules, `product.md` and `architecture.md` are never overwritten; `settings.local.json` is merged: older kit hooks are replaced and your own hooks are kept; the `opusplan` setting that older versions wrote is removed, and Claude Code's default model is used instead. An older `CLAUDE.local.md` only gets two import lines, and the new Workflow is saved as `.solo/CLAUDE.local.suggested.md`: ask Claude to "merge the Map, Workflow and Compact instructions sections of the suggested file into CLAUDE.local.md and keep the lines I added") | kit folder |
 | Run the fast checks by hand | `node .solo/engine/check.mjs --stage stop --changed` | project folder |
 | Check by hand whether tests got weaker | `node .solo/engine/test-guard.mjs --base auto` | project folder |
 | See trends per mistake category, and mistakes that repeat | `node .solo/engine/ledger.mjs list --since 30d` | project folder |
@@ -259,4 +283,4 @@ For a project type that is not detected, add a stack by hand, for example:
 
 **Project layer**: delete the repo's `.solo/`, `CLAUDE.local.md`, `.worktreeinclude` (only if it starts with the `solo-ai-team` marker, which means the kit created it), and the `proto.dir` folder (if you used `/proto`). If `.claude/settings.local.json` still holds permission settings of your own, delete only the three hooks that point to `.solo/engine/`; if the kit wrote the whole file, delete it. Finally, delete the `# solo-ai-team` block from `.git/info/exclude`. None of this affects the team's repo.
 
-**Personal layer**: delete the 13 skill folders in `~/.claude/skills/`, the 4 files in `~/.claude/agents/` and `~/.claude/solo-statusline.mjs`, then remove `statusLine` from `~/.claude/settings.json`.
+**Personal layer**: delete the 15 skill folders in `~/.claude/skills/`, the 4 files in `~/.claude/agents/` and `~/.claude/solo-statusline.mjs`, then remove `statusLine` from `~/.claude/settings.json`.
