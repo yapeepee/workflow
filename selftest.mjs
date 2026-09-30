@@ -14,7 +14,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const KIT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'kit');
+// install.mjs flags typed here by mistake used to be ignored: the run printed "82/82 passed" and installed nothing.
+const stray = process.argv.slice(2);
+if (stray.length) {
+  const shown = stray.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ');
+  console.error(`selftest.mjs takes no arguments (got: ${shown}).\nTo install or upgrade the kit, run: node install.mjs ${shown}`);
+  process.exit(2);
+}
+
+const KIT =path.join(path.dirname(fileURLToPath(import.meta.url)), 'kit');
 // Fixtures use the canonical spelling of the temp folder, which os.tmpdir() may not (C:\Users\RUNNER~1\… on CI's
 // Windows runner, /var → /private/var on macOS), so the path assertions below compare like with like.
 // Other spellings of a repo path have checks of their own (junction or symlink).
