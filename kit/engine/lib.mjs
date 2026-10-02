@@ -40,6 +40,13 @@ export const DEFAULTS = {
       '**/tests/**/*.py',
     ],
   },
+  // Stop hook flags patches on changed lines (patch-guard.mjs): the kit's own list outside `allow`, plus the project's
+  // `patterns`, which /architecture derives from the rules in .solo/architecture.md. Setting `allow` replaces this list.
+  patchGuard: {
+    enabled: true,
+    allow: ['**/*.d.ts', '**/*.Designer.cs', '**/Migrations/**', '**/*.generated.*', '**/generated/**'],
+    patterns: [],
+  },
   ship: { mode: 'manual', base: '' },
   proto: { dir: '_proto' },
 };
@@ -111,10 +118,19 @@ export function repoRoot(cwd = process.cwd()) {
   return path.resolve(top || cwd);
 }
 
-// Line numbers of `rel` that differ from HEAD (new or modified lines). null = unknown (untracked, no git):
+// The commit this branch started from, so a guard sees what a PR would show. HEAD when there is nothing to compare with.
+export function branchPoint(root, cfg) {
+  for (const ref of [cfg.ship?.base, 'origin/HEAD', 'origin/main', 'origin/master', 'main', 'master'].filter(Boolean)) {
+    const mb = git(['merge-base', 'HEAD', ref], root);
+    if (mb) return mb;
+  }
+  return 'HEAD';
+}
+
+// Line numbers of `rel` that differ from `base` (new or modified lines). null = unknown (untracked, no git):
 // callers then treat the whole file as changed.
-export function changedLines(root, rel) {
-  const out = git(['diff', '-U0', '--no-color', '--no-ext-diff', 'HEAD', '--', rel], root);
+export function changedLines(root, rel, base = 'HEAD') {
+  const out = git(['diff', '-U0', '--no-color', '--no-ext-diff', base, '--', rel], root);
   if (out === null) return null;
   if (!out) {
     const tracked = git(['ls-files', '--error-unmatch', '--', rel], root);

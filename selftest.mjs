@@ -231,6 +231,76 @@ try {
   fs.rmSync(path.join(repo, 'app', 'src', 'moved'), { recursive: true, force: true });
   git('checkout', '--', 'app/src/calc.spec.ts');
 
+  // ---------- patch guard: a suppression on a changed line blocks once; one already in HEAD is not this edit's ----------
+  write('app/src/legacy-patch.ts', 'export const a = (globalThis as any).a;\n');
+  git('add', 'app/src/legacy-patch.ts');
+  git('commit', '-qm', 'legacy patch');
+  const sidP = `${sid}-patch`;
+  const patched = write('app/src/legacy-patch.ts', 'export const a = (globalThis as any).a;\nexport const b = (globalThis as any).b;\n');
+  hook('hook-after-edit.mjs', { session_id: sidP, cwd: repo, tool_name: 'Edit', tool_input: { file_path: patched } });
+  r = hook('hook-stop.mjs', { session_id: sidP, cwd: repo });
+  j = r.out ? JSON.parse(r.out) : {};
+  check(
+    'patch guard blocks once for a suppression on a changed line, not for the one already in HEAD',
+    j.decision === 'block' && /Patch guard/.test(j.reason || '') && /legacy-patch\.ts:2 /.test(j.reason || '') && !/legacy-patch\.ts:1 /.test(j.reason || '') && /fit check/.test(j.reason || ''),
+    r.out || r.err,
+  );
+  r = hook('hook-stop.mjs', { session_id: sidP, cwd: repo });
+  j = r.out ? JSON.parse(r.out) : {};
+  check('…then lets it through and keeps flagging it to you', !j.decision && /PASS/.test(j.systemMessage || '') && /patches added.*legacy-patch\.ts/.test(j.systemMessage || ''), r.out || r.err);
+  // the CLI looks at the whole branch, as /ship does; test files are the test guard's job
+  const trunk = git('rev-parse', '--abbrev-ref', 'HEAD');
+  git('switch', '-q', '-c', 'patches');
+  write('app/src/branch-patch.ts', 'export const c = (globalThis as any).c;\n');
+  git('add', 'app/src/branch-patch.ts');
+  git('commit', '-qm', 'a patch on the branch');
+  write('app/src/mock.spec.ts', "it('mocks', () => { expect((globalThis as any).m).toBe(1); });\n");
+  r = tool('patch-guard.mjs', ['--base', 'auto']);
+  check(
+    'patch guard CLI lists what a branch adds, never test files or lines already on the main branch',
+    r.code === 1 && /branch-patch\.ts:1 /.test(r.out) && /legacy-patch\.ts:2 /.test(r.out) && !/legacy-patch\.ts:1 /.test(r.out) && !/mock\.spec\.ts/.test(r.out),
+    r.out,
+  );
+  fs.rmSync(path.join(repo, 'app', 'src', 'mock.spec.ts'));
+  git('checkout', '--', 'app/src/legacy-patch.ts');
+  git('switch', '-q', trunk);
+  // whether a line is a patch depends on the architecture: a rule's pattern stops outside its owner and names the rule,
+  // and the places the architecture means suppressions to be (generated code by default) are left alone
+  const cfgPlain = fs.readFileSync(cfgFile, 'utf8');
+  const withRule = JSON.parse(cfgPlain);
+  withRule.patchGuard = { patterns: [{ rule: 'A2', name: 'tenant branch', in: ['js'], re: 'tenant(?:Id)?\\s*===', allow: ['app/src/tenants/**'] }] };
+  fs.writeFileSync(cfgFile, JSON.stringify(withRule, null, 2));
+  write('app/src/orders.ts', "export const late = (tenantId: string) => tenantId === 'acme';\n");
+  write('app/src/tenants/policy.ts', "export const late = (tenantId: string) => tenantId === 'acme';\n");
+  write('app/src/generated/client.ts', 'export const c = (globalThis as any).c;\n');
+  write('app/src/vendor/maps.ts', 'export const m = (globalThis as any).maps;\n');
+  const ruleOut = tool('patch-guard.mjs', []).out;
+  withRule.patchGuard.allow = ['app/src/vendor/**'];
+  fs.writeFileSync(cfgFile, JSON.stringify(withRule, null, 2));
+  const allowOut = tool('patch-guard.mjs', []).out;
+  check("an architecture rule's pattern stops outside its owner, not inside it, and names the rule", /orders\.ts:1 {2}A2 tenant branch/.test(ruleOut) && !/tenants\/policy\.ts/.test(ruleOut), ruleOut);
+  check(
+    'places the architecture means suppressions to be are left alone (generated code by default, then patchGuard.allow)',
+    !/generated\/client\.ts/.test(ruleOut) && /vendor\/maps\.ts/.test(ruleOut) && !/vendor\/maps\.ts/.test(allowOut),
+    `${ruleOut}\n${allowOut}`,
+  );
+  fs.writeFileSync(cfgFile, cfgPlain);
+  for (const f of ['orders.ts', 'tenants', 'generated', 'vendor']) fs.rmSync(path.join(repo, 'app', 'src', f), { recursive: true, force: true });
+
+  // ---------- test guard --structural: a structural phase may move tests, never change what they assert ----------
+  write('app/src/price.spec.ts', "describe('price', () => {\n  it('totals', () => { expect(total([1, 2])).toBe(3); });\n  it('discounts', () => { expect(discount(10)).toBe(9); });\n});\n");
+  git('add', 'app/src/price.spec.ts');
+  git('commit', '-qm', 'price tests');
+  write('app/src/price.spec.ts', "describe('price', () => {\n  it('totals', () => { expect(total([1, 2])).toBe(3); });\n});\n");
+  write('app/src/discount.spec.ts', "describe('discount', () => {\n  it('discounts', () => { expect(discount(10)).toBe(9); });\n});\n");
+  r = tool('test-guard.mjs', ['--structural']);
+  check('test guard --structural: a test moved to another file is not a change', r.code === 0 && /structural\): PASS/.test(r.out), r.out);
+  write('app/src/discount.spec.ts', "describe('discount', () => {\n  it('discounts', () => { expect(discount(10)).toBe(8); });\n});\n");
+  r = tool('test-guard.mjs', ['--structural']);
+  check('test guard --structural reports an assertion whose expected value changed', r.code === 1 && /assertion changed or removed: .*toBe\(9\)/.test(r.out), r.out);
+  fs.rmSync(path.join(repo, 'app', 'src', 'discount.spec.ts'));
+  git('checkout', '--', 'app/src/price.spec.ts');
+
   // ---------- environment failures (broken node_modules) go to the user, not to Claude ----------
   write('tools/envfail.cjs', "console.error(\"Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'node_modules/yargs/build/lib/yargs-factory.js' imported from node_modules/yargs/index.mjs\");process.exit(1)\n");
   const cfgKeep = fs.readFileSync(cfgFile, 'utf8');
@@ -315,7 +385,11 @@ try {
   fs.rmSync(planFile);
   write('.solo/tasks/demo-task/spec.md', '# Demo\nSize: M\nAcceptance:\n- [ ] AC1 works\n');
   r = hook('hook-session-start.mjs', { session_id: sid, cwd: repo, source: 'clear' });
-  check('an M task without a plan gets the phase format, Pattern line included', /plan format for this M task/.test(r.out) && /Pattern: <recipe/.test(r.out) && /status: todo/.test(r.out), r.out);
+  check(
+    'an M task without a plan gets the phase format, Type and Pattern lines included',
+    /plan format for this M task/.test(r.out) && /Pattern: <recipe/.test(r.out) && /Type: behavior \| structural/.test(r.out) && /status: todo/.test(r.out),
+    r.out,
+  );
   fs.writeFileSync(planFile, planKeep);
 
   // ---------- hooks exactly as Claude Code runs them (exec form from kit/settings.json) ----------
@@ -451,7 +525,7 @@ try {
     ['product.md', 'architecture.md'].every((f) => /Not written yet/.test(fs.readFileSync(path.join(mine, '.solo', f), 'utf8')) && mineLocal.includes(`@.solo/${f}`) && wtNow.includes(`.solo/${f}`)),
     mineLocal.slice(0, 200),
   );
-  // an older kit's CLAUDE.local.md: no imports, no triage rules, plus a line of your own. The installer adds the
+  // an older kit's CLAUDE.local.md: no imports, no triage or fit-check rules, plus a line of your own. The installer adds the
   // imports in place, never rewrites your lines, and offers the new Workflow as a suggestion to merge.
   // without --force, older kit files stay in place; say so, or a new CLAUDE.local.md sits next to last month's skills
   const specSkill = path.join(fakeHome, '.claude', 'skills', 'spec', 'SKILL.md');
@@ -480,7 +554,8 @@ try {
       (upgraded.match(/^@\.solo\/architecture\.md$/gm) || []).length === 1 &&
       upgraded.includes('- my own rule') &&
       !upgraded.includes('Requirement changes during the work') &&
-      fs.readFileSync(path.join(mine, '.solo', 'CLAUDE.local.suggested.md'), 'utf8').includes('Requirement changes during the work') &&
+      !upgraded.includes('Design misfit during the work') &&
+      ['Requirement changes during the work', 'Design misfit during the work'].every((rule) => fs.readFileSync(path.join(mine, '.solo', 'CLAUDE.local.suggested.md'), 'utf8').includes(rule)) &&
       /CLAUDE\.local\.suggested\.md/.test(upgrade.stdout) &&
       fs.readFileSync(path.join(mine, '.solo', 'architecture.md'), 'utf8').includes('A1 MUST keep mine') &&
       g(mine, 'status', '--porcelain') === '',

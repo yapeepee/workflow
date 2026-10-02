@@ -7,12 +7,14 @@
 //   so an unfixable failure can't burn your usage in a loop.
 // - Only environment failures (dependencies missing or half-installed) → does not block, because Claude can't fix
 //   those by editing code; tells you the restore command instead (npm ci / dotnet restore).
-// - Tests got weaker than in HEAD (test-guard.mjs) → blocks once per distinct finding so Claude restores them or
-//   says why; after that the PASS line keeps showing the finding to you, so a weakened test never goes unnoticed.
+// - Guards see what passing checks hide: tests that got weaker than in HEAD (test-guard.mjs), and patches on changed
+//   lines such as a suppression or a swallowed error (patch-guard.mjs). Each distinct finding blocks once, so Claude
+//   restores it, runs the fit check or says why; after that the PASS line keeps showing it to you.
 import fs from 'node:fs';
 import { loadConfig, loadState, out, readStdinJson, repoRoot, saveState } from './lib.mjs';
 import { formatReport, runStage } from './check.mjs';
-import { findWeakenedTests, formatWeakened, signature } from './test-guard.mjs';
+import { findPatches, formatPatches, signature as patchSignature } from './patch-guard.mjs';
+import { findWeakenedTests, formatWeakened, signature as testSignature } from './test-guard.mjs';
 
 const input = readStdinJson();
 const sid = input.session_id;
@@ -32,22 +34,43 @@ try {
 const res = runStage({ root, cfg, stage: 'stop', files: edited });
 const ran = res.results.filter((r) => r.status !== 'skip');
 
-let weakened = [];
-try {
-  weakened = findWeakenedTests(root, cfg, { files: edited });
-} catch {
-  /* the guard must never break the Stop hook */
-}
-const sig = weakened.length ? signature(weakened) : '';
-const seen = new Set(state.testGuardSeen || []);
-const newWeakening = weakened.length > 0 && !seen.has(sig);
+const guards = [
+  {
+    seenKey: 'testGuardSeen',
+    find: findWeakenedTests,
+    signature: testSignature,
+    format: formatWeakened,
+    flag: (found) => `tests weaker than HEAD, review before committing: ${found.map((w) => w.file).join(', ')}`,
+  },
+  {
+    seenKey: 'patchGuardSeen',
+    find: findPatches,
+    signature: patchSignature,
+    format: formatPatches,
+    flag: (found) => `patches added, each one kept needs a Known deviations line: ${[...new Set(found.map((p) => p.file))].join(', ')}`,
+  },
+].map((g) => {
+  let found = [];
+  try {
+    found = g.find(root, cfg, { files: edited });
+  } catch {
+    /* a guard must never break the Stop hook */
+  }
+  const sig = found.length ? g.signature(found) : '';
+  const seen = new Set(state[g.seenKey] || []);
+  return { ...g, found, sig, seen, fresh: found.length > 0 && !seen.has(sig) };
+});
+const fresh = guards.filter((g) => g.fresh);
 const markSeen = () => {
-  if (newWeakening) state.testGuardSeen = [...seen, sig].slice(-50); // only once Claude has actually been shown it
+  for (const g of fresh) state[g.seenKey] = [...g.seen, g.sig].slice(-50); // only once Claude has actually been shown it
 };
 
-if (res.ok && !newWeakening) {
+if (res.ok && !fresh.length) {
   saveState(sid, { ...state, edited: [], fails: 0, suspended: false });
-  const flagged = weakened.length ? ` · ⚠ tests weaker than HEAD, review before committing: ${weakened.map((w) => w.file).join(', ')}` : '';
+  const flagged = guards
+    .filter((g) => g.found.length)
+    .map((g) => ` · ⚠ ${g.flag(g.found)}`)
+    .join('');
   // seconds per step, because this runs every turn: a step that is always slow belongs in "full" only
   if (ran.length || flagged) out({ systemMessage: `solo check PASS${ran.length ? `: ${ran.map((r) => `${r.stack}/${r.step} ${(r.ms / 1000).toFixed(1)}s`).join(', ')}` : ''}${flagged}` });
   process.exit(0);
@@ -69,10 +92,10 @@ if (!res.ok && failing.every(notClaudes)) {
 }
 
 if (res.ok) {
-  // checks are green but tests were weakened: ask once, then let it through (flagged) on the next stop
+  // checks are green but a guard found something new: ask once, then let it through (flagged) on the next stop
   markSeen();
   saveState(sid, { ...state, edited });
-  out({ decision: 'block', reason: formatWeakened(weakened) });
+  out({ decision: 'block', reason: fresh.map((g) => g.format(g.found)).join('\n\n') });
   process.exit(0);
 }
 
@@ -95,6 +118,6 @@ out({
     ...(failing.some((r) => r.env) ? ['Steps marked ENV are broken dependencies on this machine: leave them to the user, do not edit code or run npm install for them.'] : []),
     '',
     formatReport(res, cfg, root),
-    ...(newWeakening ? ['', formatWeakened(weakened)] : []),
+    ...fresh.flatMap((g) => ['', g.format(g.found)]),
   ].join('\n'),
 });

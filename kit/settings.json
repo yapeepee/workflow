@@ -11,6 +11,8 @@
       "Bash(node .solo/engine/token-guard.mjs *)",
       "Bash(node .solo/engine/test-guard.mjs)",
       "Bash(node .solo/engine/test-guard.mjs *)",
+      "Bash(node .solo/engine/patch-guard.mjs)",
+      "Bash(node .solo/engine/patch-guard.mjs *)",
       "Bash(git add *)",
       "Bash(git switch *)",
       "Bash(git worktree list *)"

@@ -99,6 +99,7 @@ if (!hasPlan && /^Size:\s*M\b/m.test(spec)) {
   lines.push(
     `--- plan format for this M task: plan mode first; after the user approves, save the plan to .solo/tasks/${slug}/plan.md as short phases (about 150 lines in total), each small enough to review on its own ---`,
     '## Phase <n> — <goal> · status: todo',
+    'Type: behavior | structural (no behavior change: no assertion may change)',
     'Files: <files it changes>',
     'Covers: <AC ids>',
     'Pattern: <recipe from .solo/architecture.md> — follow `<reference file>`',

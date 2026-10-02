@@ -6,13 +6,16 @@
 //   - new skip / only / focus markers (xit, it.skip, fit, .only, [Fact(Skip=...)], [Ignore], @pytest.mark.skip …)
 //   - fewer assertions
 //   - deleted test files (renames are fine)
+// A structural phase (refactoring: no behavior change) is held to more: the tests are its specification, so every
+// assertion that was there before must still be there, word for word. Moving tests to other files is fine.
 // Pure text comparison: no model calls, no test run.
 //
 //   node .solo/engine/test-guard.mjs              changed test files vs HEAD
 //   node .solo/engine/test-guard.mjs --base auto  vs the branch point (what a PR would show)
+//   node .solo/engine/test-guard.mjs --structural no assertion may change (a structural phase, vs HEAD)
 import fs from 'node:fs';
 import path from 'node:path';
-import { git, isMain, loadConfig, matchAny, repoRoot, toRel } from './lib.mjs';
+import { branchPoint, git, isMain, loadConfig, matchAny, repoRoot, toRel } from './lib.mjs';
 
 // (?<![.\w$]) keeps `/re/.test(x)` and `commit(` from counting as tests
 const JS = {
@@ -104,6 +107,54 @@ export function findWeakenedTests(root, cfg, { files = null, base = 'HEAD' } = {
   return findings;
 }
 
+const assertionLines = (text, lang) =>
+  text == null
+    ? []
+    : lang
+        .strip(text)
+        .split(/\r?\n/)
+        .filter((l) => l.search(lang.asserts) >= 0)
+        .map((l) => l.trim().replace(/\s+/g, ' '));
+
+/**
+ * Assertions a structural phase changed or removed. All changed test files are compared as one pool, so a test
+ * moved to another file still counts as kept; a new skip/only marker counts as a change too.
+ * @returns [{ file, text }]
+ */
+export function findChangedAssertions(root, cfg, { base = 'HEAD' } = {}) {
+  const tg = cfg.testGuard || {};
+  if (tg.enabled === false) return [];
+  if (git(['rev-parse', '--verify', '--quiet', base], root) === null) return [];
+  const isTest = (rel) => matchAny(tg.files, rel) && !matchAny(cfg.ignore, rel);
+  const { renamedFrom } = statusVs(root, base);
+  const movedAway = new Set(renamedFrom.values()); // read through their new path, never twice
+  const candidates = [
+    ...(git(['diff', '--name-only', '--no-color', base], root) || '').split('\n'),
+    ...(git(['ls-files', '--others', '--exclude-standard'], root) || '').split('\n'),
+  ].filter((rel) => rel && isTest(rel) && langOf(rel) && !movedAway.has(rel));
+  const pool = new Map(); // assertion text → { before, after, file }
+  const tally = (text, side, file) => {
+    const e = pool.get(text) || { before: 0, after: 0, file };
+    e[side] += 1;
+    pool.set(text, e);
+  };
+  const findings = [];
+  for (const rel of new Set(candidates)) {
+    const lang = langOf(rel);
+    const before = git(['show', `${base}:${renamedFrom.get(rel) || rel}`], root);
+    const abs = path.join(root, rel);
+    const after = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
+    for (const a of assertionLines(before, lang)) tally(a, 'before', rel);
+    for (const a of assertionLines(after, lang)) tally(a, 'after', rel);
+    if (before != null && after != null) {
+      const added = countSignals(after, lang).markers - countSignals(before, lang).markers;
+      if (added > 0) findings.push({ file: rel, text: `${rel}: skip/only markers +${added}` });
+    }
+  }
+  for (const [text, e] of pool) if (e.after < e.before) findings.push({ file: e.file, text: `${e.file}: assertion changed or removed: ${text}` });
+  return findings;
+}
+
 export const signature = (findings) =>
   findings
     .map((f) => f.text)
@@ -124,18 +175,18 @@ function main() {
   const argv = process.argv.slice(2);
   const root = repoRoot();
   const cfg = loadConfig(root);
-  let base = 'HEAD';
   const i = argv.indexOf('--base');
-  if (i >= 0 && argv[i + 1]) base = argv[i + 1];
-  if (base === 'auto') {
-    base = 'HEAD';
-    for (const ref of [cfg.ship?.base, 'origin/HEAD', 'origin/main', 'origin/master', 'main', 'master'].filter(Boolean)) {
-      const mb = git(['merge-base', 'HEAD', ref], root);
-      if (mb) {
-        base = mb;
-        break;
-      }
+  const asked = i >= 0 && argv[i + 1] ? argv[i + 1] : 'HEAD';
+  const base = asked === 'auto' ? branchPoint(root, cfg) : asked;
+  if (argv.includes('--structural')) {
+    const changed = findChangedAssertions(root, cfg, { base });
+    if (!changed.length) {
+      console.log('TEST GUARD (structural): PASS (every assertion is unchanged; moved tests are fine)');
+      return 0;
     }
+    console.log(`TEST GUARD (structural): CHANGED (vs ${base.slice(0, 12)}): a structural phase must not change what the tests assert`);
+    for (const f of changed) console.log(`  ${f.text}`);
+    return 1;
   }
   const findings = findWeakenedTests(root, cfg, { base });
   if (!findings.length) {
