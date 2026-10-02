@@ -12,6 +12,7 @@ allowed-tools:
   - Bash(git diff *)
   - Bash(git log *)
   - Bash(node .solo/engine/check.mjs *)
+  - Bash(node .solo/engine/patch-guard.mjs *)
 metadata:
   kit: solo-ai-team
 ---
@@ -30,22 +31,23 @@ Mode: "$ARGUMENTS" (empty → full review; `check [base]` → drift check only).
    ```
    # Architecture — <project>
    ## Shape
-   <modules and the allowed dependency direction, at most 10 lines>
+   <modules, the allowed dependency direction, and the module that owns each core decision (pricing, permissions, …); at most ~15 lines>
    ## Rules
-   - A1 MUST | MUST NOT <rule> · scope: <paths> · enforced by: <test | lint | review>
+   - A1 MUST | MUST NOT <rule> · scope: <paths> · enforced by: <test | lint | patch guard | review>
    ## Recipes
    ### <kind of change: API endpoint · screen · migration · background job …>
    Follow: `<reference file(s)>`
    Steps: <files to add or touch, in order, the test included>
    ## Known deviations
-   - `<path>` breaks A<n>: do not copy it; fix it only when a task is about it
+   - `<path>` · bypasses <A<n>, or the owner of a decision> · why · remove when <condition>
    ## Open questions
    - <what is inconsistent today and needs a decision>
    ```
 
-   Pick the best current example as the reference, not the oldest. Every rule needs evidence: the code where it already holds, or an entry in `.solo/decisions.md`. If the file already has content, start from it: keep the rules and recipes I approved unless the code now contradicts them, and show your changes as a diff.
-3. Write the assessment to `.solo/architecture-review-<yyyy-mm-dd>.md`, at most 60 lines: what is solid · what is risky (features built in inconsistent ways, missing boundaries, authorization gaps, code that is hard to test) · the 5 most valuable improvements, each with a size (S/M/L) and the rule it would establish. Add each improvement as one line to `.solo/inbox.md`.
-4. Mechanical checks: for each rule that a tool can check, propose the check concretely. .NET: an architecture test (NetArchTest or ArchUnitNET) in the existing test project. TypeScript: `eslint-plugin-boundaries` or `dependency-cruiser` rules. Ask before adding any dependency. Shared repo (`"shared": true` in `.solo/config.json`): do not change the team's tests or lint config; offer a private check under `.solo/checks/`, run by a `full` step, or a suggestion to take to the team.
+   Pick the best current example as the reference, not the oldest. Every rule needs evidence: the code where it already holds, or an entry in `.solo/decisions.md`. Name an owner in Shape only where the code (or a decision) already concentrates that decision; list the places that bypass it under Known deviations. Known deviations are patches kept on purpose, and the fit check in `CLAUDE.local.md` adds them during tasks: never copy one, and when a task changes the same concept, the fit check decides whether to fix it. If the file already has content, start from it: keep the rules, recipes and deviations I approved unless the code now contradicts them, drop deviations whose code is gone, list those whose remove-when condition now holds, and show your changes as a diff.
+3. Write the assessment to `.solo/architecture-review-<yyyy-mm-dd>.md`, at most 60 lines: what is solid · what is risky (features built in inconsistent ways, missing boundaries, authorization gaps, code that is hard to test) · the 5 most valuable improvements, each with a size (S/M/L) and the rule it would establish; a concept with several Known deviations is a strong candidate. Add each improvement as one line to `.solo/inbox.md`.
+4. Mechanical checks: for each rule that a tool can check, propose the check concretely. Start with the ownership rules in Shape: they turn "follow the architecture" into a failing check (for example, nothing outside `src/pricing/` imports the discount rules). .NET: an architecture test (NetArchTest or ArchUnitNET) in the existing test project. TypeScript: `eslint-plugin-boundaries` or `dependency-cruiser` rules. Ask before adding any dependency. Shared repo (`"shared": true` in `.solo/config.json`): do not change the team's tests or lint config; offer a private check under `.solo/checks/` (for an ownership rule, a zero-dependency Node script that greps imports is enough), run by a `full` step, or a suggestion to take to the team.
+   What counts as a patch here comes from these rules too. A rule that one changed line can break (a branch on a tenant id outside its owner, a catch that returns a default where errors must propagate, raw SQL outside the data layer) becomes a `patchGuard.patterns` entry in `.solo/config.json`: `{ "rule": "A<n>", "name": "<short label>", "in": ["js" | "markup" | "cs" | "py" | "css"], "re": "<regex>", "allow": ["<the owner's paths>"] }`. It needs no dependency and works in a shared repo. Places where the architecture means suppressions to be (an adapter around an untyped library, generated code) go into `patchGuard.allow`, keeping its default entries from the engine's `lib.mjs`. Write both with the rules, after I approve, then run `node .solo/engine/patch-guard.mjs` once: it reports any pattern that does not compile.
 5. Show me the rules and recipes. Write the file only after I approve: this is an architecture change. Record each rule that settles an open choice in `.solo/decisions.md`.
 6. If `CLAUDE.local.md` still has TODO lines (What this is, Map, Conventions) and `git ls-files CLAUDE.local.md` prints nothing, propose them as a diff and apply it after I approve. Keep them short: rules belong in `.solo/architecture.md`, not there.
 7. End with: "This review filled the context. Run /clear before the next task."
@@ -53,5 +55,5 @@ Mode: "$ARGUMENTS" (empty → full review; `check [base]` → drift check only).
 ## check
 
 1. Base: the argument after `check`, or else the branch point that `node .solo/engine/check.mjs --review-gate` prints when run without `--base` (after `vs`). Read `git diff <base>`, which includes uncommitted changes, and the untracked files (`git ls-files --others --exclude-standard`).
-2. For each changed area, ask: does it follow the recipe for its kind of change and every rule in scope? Is it a new kind of change with no recipe? Does it copy a known deviation?
-3. Report: violations (`path:line` · rule · fix) · new patterns that need a decision · recipes or rules that are now out of date. Propose the edits to `.solo/architecture.md` and write them only after I approve. Fix violations in the code only when I agree they belong to this task.
+2. For each changed area, ask: does it follow the recipe for its kind of change and every rule in scope? Is it a new kind of change with no recipe? Does it copy a known deviation? Does it add a special case or a suppression with no line under Known deviations (`node .solo/engine/patch-guard.mjs --base <base>` lists the suppressions and the rules a line breaks)?
+3. Report: violations (`path:line` · rule · fix) · patches with no Known deviations line · new patterns that need a decision · recipes or rules that are now out of date. Propose the edits to `.solo/architecture.md` and write them only after I approve. Fix violations in the code only when I agree they belong to this task.

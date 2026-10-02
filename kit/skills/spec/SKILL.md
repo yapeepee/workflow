@@ -22,6 +22,7 @@ Turn the request into a task card whose acceptance criteria a machine can check.
    - Clear request that fits S or M → ask only about product decisions that change the outcome (behavior, scope, UX, data). At most 3 questions, in one message.
    - L, or a vague request → interview me with AskUserQuestion, one topic at a time: behavior, edge cases, UX, data, failure modes, trade-offs. Skip anything obvious or answerable from the code, and dig into what I probably haven't considered. Stop when another answer would not change the spec.
 4. Architecture impact: for each kind of change this task makes, name the recipe in `.solo/architecture.md` and its reference file. If the task needs something no recipe or rule covers — a new kind of change, a new dependency, a new dependency direction, an exception to a rule — list it under "New patterns" and ask me before planning. Record what I approve in `.solo/decisions.md`, and in `.solo/architecture.md` when it becomes the way to do that kind of change. If `.solo/architecture.md` is still the stub, read the closest existing feature end to end, propose it as the reference for this kind of change, and add that recipe after I approve.
+   Then the footprint: for the behavior this task changes, find every place that already decides it (the search in the fit check of `CLAUDE.local.md`). If it is special-cased in 2+ places, or the task lands on a Known deviation, put the structural change that gives it one owner under "Structure first" and plan it as the first phase, or say why not.
 5. Pick a short kebab-case slug and write `.solo/tasks/<slug>/spec.md`. The spec must stand on its own: a fresh session that never saw this conversation has to be able to implement it.
 
    ```
@@ -36,6 +37,7 @@ Turn the request into a task card whose acceptance criteria a machine can check.
    Product rules: none | P<n> …
    Pattern: <recipe> — follow `<reference file>` (one line per kind of change)
    New patterns: none | <what, and the decision that approved it>
+   Structure first: none | <the structural change, and the places it consolidates>
    Files and interfaces: <files, components, endpoints or types this touches>
    Blast radius: ~<n> files
    Acceptance (each line checkable by a test, a command, or an observable UI state):
@@ -55,10 +57,11 @@ Turn the request into a task card whose acceptance criteria a machine can check.
    - M → run `/clear` first (the new session loads this card automatically), then plan mode (Shift+Tab). The plan is a short list of phases, at most ~150 lines in total:
      ```
      ## Phase <n> — <goal> · status: todo
+     Type: behavior | structural (no behavior change: no assertion may change)
      Files: <files it changes>
      Covers: <AC ids>
      Pattern: <recipe> — follow `<reference file>`
      Verify: <the command that proves this phase works>
      ```
-     Each phase must be small enough to review on its own (well under `review.splitLines` changed lines in `.solo/config.json`). After I approve, save the plan to `.solo/tasks/<slug>/plan.md`, run `/phase` once per phase, and `/ship` after the last one.
+     Each phase must be small enough to review on its own (well under `review.splitLines` changed lines in `.solo/config.json`). A structural phase covers no AC; its Verify is `node .solo/engine/check.mjs --stage full` and `node .solo/engine/test-guard.mjs --structural`. After I approve, save the plan to `.solo/tasks/<slug>/plan.md`, run `/phase` once per phase, and `/ship` after the last one.
    - L → propose a split into M tasks. Do not start.

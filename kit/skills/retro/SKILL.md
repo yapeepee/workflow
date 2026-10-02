@@ -20,7 +20,7 @@ Collect (read-only):
 - `.solo/inbox.md`: how many open items, and how old the oldest one is
 
 Then:
-1. Summarize the week in numbers: tasks shipped, time from start to ship per task, review and security findings fixed before shipping, escaped bugs, fix/revert commits (rework signal), repeated mistakes, open inbox items. Compare with earlier weeks when there are any. Do not count lines of code.
+1. Summarize the week in numbers: tasks shipped, time from start to ship per task, review and security findings fixed before shipping, escaped bugs, fix/revert commits (rework signal), repeated mistakes, Known deviations added and removed (the patches kept: a count that only grows means structure is eroding), open inbox items. Compare with earlier weeks when there are any. Do not count lines of code.
 2. Ask me at most two questions: where did I wait or feel friction, and what did I avoid starting.
 3. Name ONE bottleneck. Choose from: unclear specs · waiting on checks · my review load · context resets · usage limits · flaky tests or environment · too much work in progress · other (say what).
 4. Propose ONE experiment for next week that is concrete, cheap and measurable (e.g. "only one parallel session", "add related tests to the stop stage", "split L tasks before planning").

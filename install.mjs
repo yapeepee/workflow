@@ -590,8 +590,8 @@ const sharedLine = (localMd.match(SHARED_LINE) || [''])[0];
 if (!effectiveShared) localMd = localMd.replace(SHARED_LINE, '');
 const localMdFile = path.join(TARGET, 'CLAUDE.local.md');
 const existingLocal = readText(localMdFile);
-// Present in the Workflow section since the kit added the big-picture, architecture-recipe and requirement-change rules.
-const WORKFLOW_MARK = 'Requirement changes during the work';
+// Present in the Workflow section since the kit added the fit check, the newest of its Workflow rules.
+const WORKFLOW_MARK = 'Design misfit during the work';
 const mergeNote =
   'Ask Claude: "merge the Map, Workflow and Compact instructions sections of .solo/CLAUDE.local.suggested.md into CLAUDE.local.md and keep the lines I added" (or merge them by hand).';
 if (existingLocal !== null && !existingLocal.includes('/learn proposes additions, /refresh prunes')) {
@@ -628,7 +628,7 @@ if (existingLocal !== null && !existingLocal.includes('/learn proposes additions
   }
   if (!updated.includes(WORKFLOW_MARK)) {
     write(path.join(TARGET, '.solo', 'CLAUDE.local.suggested.md'), localMd, { overwrite: true });
-    notes.push(`Your CLAUDE.local.md predates the Workflow rules for reading code yourself, following architecture.md and handling requirement changes. ${mergeNote}`);
+    notes.push(`Your CLAUDE.local.md predates the Workflow rules for reading code yourself, following architecture.md, handling requirement changes and the fit check before a patch. ${mergeNote}`);
   }
 }
 
