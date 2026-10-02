@@ -81,7 +81,7 @@ What you review is small and high-leverage: the task card, the phase plan, each 
 
 The main session reads the code, analyses and designs; a side task that needs the big picture runs as a fork (`/subtask <task>`), which inherits the whole conversation. Subagents: `scout` (Sonnet, read-only; exhaustive searches only, returning locations and the searches it ran, not conclusions), `test-author` (same model as your session; tests for one phase, never production code), `security-reviewer` (same model as your session; one careful pass over the whole branch), `prototyper` (Sonnet; one throwaway direction each).
 
-Model: the kit does not pin the session's model, so Claude Code's default applies (Opus 5.5 at medium effort on Max, as of 2026-09). `/model opusplan` (Opus plans, Sonnet builds) saves usage. The four analysis skills are the exception: `/spec`, `/product`, `/architecture` and `/refresh` set `model: opus`, so they run on Opus whichever model the session uses, `opusplan` and Fable included.
+Model: the kit does not pin the session's model, so Claude Code's default applies (Opus 5.5 at medium effort on Max, as of 2026-09). `/model opusplan` (Opus plans, Sonnet builds) saves usage. The four analysis skills are the exception: `/spec`, `/product`, `/architecture` and `/refresh` set `model: opus`, so they run on Opus whichever model the session uses, `opusplan` and Fable included. `/spec`, `/product` and `/architecture` also set `effort: max`, which overrides the session's level while they run; plan mode is not a skill, so start the planning session of an M task with `/effort max` (max can only be set per session), and `/phase` drops back to medium on its own.
 
 ## What runs by itself
 

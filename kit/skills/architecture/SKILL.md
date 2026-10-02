@@ -4,7 +4,7 @@ description: 架構健檢：主 session 自己讀完整個專案，寫出 .solo/
 argument-hint: "[check [base]]（留空：完整健檢；check：比對改動與規則）"
 disable-model-invocation: true
 model: opus
-effort: high
+effort: max
 allowed-tools:
   - Bash(git ls-files)
   - Bash(git ls-files *)

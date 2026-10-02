@@ -188,7 +188,7 @@ Claude 要加以下任何一種東西之前，會先做 fit check：針對單一
 ## 7. 額度與中斷
 
 - 狀態列的 `ctx` 是這個 session 用掉的 context，`5h` 和 `7d` 是額度用量；50% 以上變黃、80% 以上變紅。`ctx` 到 60% 時，狀態列會提示你 `/handoff` 再 `/clear`。
-- 模型：套件不指定 session 的模型，用 Claude Code 的預設（2026-09 時，Max 是 Opus 5.5、effort medium）。額度吃緊時用 `/model opusplan`（Opus 規劃、Sonnet 實作）。`/spec`、`/product`、`/architecture` 和 `/refresh` 設了 `model: opus`，不論 session 用哪個模型，它們都跑在 Opus 上。
+- 模型：套件不指定 session 的模型，用 Claude Code 的預設（2026-09 時，Max 是 Opus 5.5、effort medium）。額度吃緊時用 `/model opusplan`（Opus 規劃、Sonnet 實作）。`/spec`、`/product`、`/architecture` 和 `/refresh` 設了 `model: opus`，不論 session 用哪個模型，它們都跑在 Opus 上。前三個不論 session 開在哪一級，都跑在 effort max；plan mode 則要在規劃 session 一開始打 `/effort max`（只對這個 session 有效），之後 `/phase` 會自己降回 medium。
 - Max 5x 方案同時最多開 2 個實作 session，各自在自己的 worktree（`claude -w <name>`）。
 - 同一件事糾正兩次還是不對時，執行 `/clear`，把學到的寫進新的 prompt 重來。
 - Claude 開始繞圈子、做你沒要求的功能，或想修改測試時，按 Esc 中斷。

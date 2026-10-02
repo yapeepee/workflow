@@ -83,7 +83,7 @@ L  跨模組，超過一天        /spec 先把它拆成幾個 M 任務
 
 主 session 自己讀程式、做分析和設計；需要全局的旁支工作用 fork（`/subtask <任務>`），它會繼承整段對話。子代理：`scout`（Sonnet，唯讀；只做窮舉搜尋，回報位置和實際跑過的搜尋，不下結論）、`test-author`（和你的 session 同一個模型；只寫一個 phase 的測試，不碰正式程式碼）、`security-reviewer`（和你的 session 同一個模型；仔細審一次整個分支）、`prototyper`（Sonnet；一個方向一個丟棄式原型）。
 
-模型：套件不指定 session 的模型，所以用 Claude Code 的預設（2026-09 時，Max 是 Opus 5.5、effort medium）。`/model opusplan`（Opus 規劃、Sonnet 實作）可以省額度。例外是四個分析類的 skill：`/spec`、`/product`、`/architecture` 和 `/refresh` 設了 `model: opus`，不論 session 用哪個模型（包括 `opusplan` 和 Fable），它們都跑在 Opus 上。
+模型：套件不指定 session 的模型，所以用 Claude Code 的預設（2026-09 時，Max 是 Opus 5.5、effort medium）。`/model opusplan`（Opus 規劃、Sonnet 實作）可以省額度。例外是四個分析類的 skill：`/spec`、`/product`、`/architecture` 和 `/refresh` 設了 `model: opus`，不論 session 用哪個模型（包括 `opusplan` 和 Fable），它們都跑在 Opus 上。`/spec`、`/product` 和 `/architecture` 另外設了 `effort: max`，執行時會覆蓋 session 的等級；plan mode 不是 skill，所以 M 任務的規劃 session 一開始要自己打 `/effort max`（max 只能對單一 session 設定），之後 `/phase` 會自己降回 medium。
 
 ## 自動發生的事
 

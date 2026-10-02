@@ -4,7 +4,7 @@ description: 建立或更新 .solo/product.md：用訪談整理產品層的背�
 argument-hint: "[要更新的部分，例如：角色權限]（留空：第一次建立，或整份一起檢查）"
 disable-model-invocation: true
 model: opus
-effort: high
+effort: max
 allowed-tools:
   - Bash(git ls-files)
   - Bash(git ls-files *)

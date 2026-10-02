@@ -117,9 +117,9 @@
 
 | 步驟 | 執行者與模型 | 你要做的事 | 成本控制 |
 |---|---|---|---|
-| 0. `/product`、`/architecture`（偶爾） | Opus，主 session 自己讀程式 | 回答產品訪談；核准產品規則、架構規則和標準做法 | 一個專案做一次，之後小幅更新；`/architecture` 用掉很多 context，做完先 `/clear` |
-| 1. `/spec`（在新 session 執行） | Opus | 回答產品問題（S/M 最多 3 題；L 或模糊的需求會逐題訪談）；M/L 核准任務卡；需要新架構做法時核准 | context 很小，這時切換模型幾乎沒有代價；主 session 自己讀相關程式，scout 只做窮舉搜尋 |
-| 2. plan mode（M 以上） | Opus | 讀 phase 計畫（約 150 行以內，每個 phase 註明照哪個標準做法），核准或修正 | 需要全局的旁支工作用 fork，沿用 prompt cache |
+| 0. `/product`、`/architecture`（偶爾） | Opus，effort max，主 session 自己讀程式 | 回答產品訪談；核准產品規則、架構規則和標準做法 | 一個專案做一次，之後小幅更新；`/architecture` 用掉很多 context，做完先 `/clear` |
+| 1. `/spec`（在新 session 執行） | Opus，effort max | 回答產品問題（S/M 最多 3 題；L 或模糊的需求會逐題訪談）；M/L 核准任務卡；需要新架構做法時核准 | context 很小，這時切換模型幾乎沒有代價；主 session 自己讀相關程式，scout 只做窮舉搜尋 |
+| 2. plan mode（M 以上） | Opus；規劃 session 一開始打 `/effort max` | 讀 phase 計畫（約 150 行以內，每個 phase 註明照哪個標準做法），核准或修正 | 需要全局的旁支工作用 fork，沿用 prompt cache |
 | 3. `/phase`（每個 phase 一次） | test-author 先寫這個 phase 的測試，主 session 照參考檔案實作（都用預設模型） | 看測試名稱和斷言：這是槓桿最高的 review；共用 repo 由你自己 commit | Stop hook 自動驗證；commit 前對照參考檔案；review gate 只量這個 phase 的 diff |
 | 4. `/ship`（最後一個 phase 之後） | 主 session 加 runner；`/secure` 由 security-reviewer 在全新的 context 審整個分支 | 看安全審查報告、`ship.md` 和高風險路徑的 diff | code review 已經在各個 phase 做過；安全審查每個任務一次 |
 | 5. `/learn` | 預設模型 | 核准記憶和規則的變更 | 每次最多 5 條 |
@@ -212,6 +212,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 ### 6.1 事實（依 2026-09 的官方文件；模型與價格在 2026-09-29 重新查證）
 
 - Claude Code 對 Pro、Max、Team 的預設模型是 Opus 5.5，effort 預設 medium。套件不再指定 session 的模型，所以就用這個預設；只有 `/spec`、`/product`、`/architecture` 和 `/refresh` 固定用 Opus。
+- skill 的 `effort` 在它執行時會覆蓋 session 的等級（2026-10-02 重新查證），所以 session 開到 max，跑到設了 high 的 skill 時仍然是 high。`max` 不能存成永久預設：`effortLevel` 和 `modelSettings` 最高只接受 `xhigh`，所以 max 只能來自 `/effort max`（一個 session）、`CLAUDE_CODE_EFFORT_LEVEL` 環境變數，或 skill 自己的 `effort`。官方文件提醒，max 可能報酬遞減，也容易想太多。
 - `opusplan`：plan mode 用 Opus，其他時候用 Sonnet（2026-09-28 起是 Sonnet 5.5）。額度吃緊時可以用 `/model opusplan`。
 - API 價格（每百萬 token，輸入／輸出）：Fable 5.1 $10/$50、Opus 5.5 $4/$20、Sonnet 5.5 $2/$10、Haiku 4.5 $1/$5（context 200K，仍是最新的 Haiku）。訂閱方案的額度怎麼換算，官方沒有公布，API 價格只能當方向參考。
 - 官方建議多數工作先用 Opus 5.5；需要高強度推理、長時間的 agentic 工作，或 Opus 提高 effort 仍然不夠時，才用 Fable 5.1。
@@ -223,7 +224,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 
 ### 6.2 每日紀律
 
-1. **模型**：用 Claude Code 的預設（Max 上是 Opus 5.5，effort medium）；需要深度的 skill 自己設 effort（`/spec`、`/bugfix`、`/secure` 是 high）。額度吃緊時用 `/model opusplan`。同一個問題卡住兩次，先提高 effort（xhigh），還不夠才換更強的模型。
+1. **模型**：用 Claude Code 的預設（Max 上是 Opus 5.5，effort medium）；需要深度的 skill 自己設 effort：`/spec`、`/product`、`/architecture` 是 max，因為藍圖錯了是最貴的錯誤，而它們一個任務或一個專案才跑一次；`/bugfix`、`/secure` 是 high。plan mode 不是 skill，所以 M 任務的規劃 session 一開始先打 `/effort max`，之後 `/phase`（medium）會把實作降回來。max 是否真的比 high 寫出更好的計畫，還沒有量過；看 `/retro` 的計畫重做次數。額度吃緊時用 `/model opusplan`。同一個問題卡住兩次，先提高 effort（xhigh），還不夠才換更強的模型。
 2. **Context**：用量到 50% 到 60% 時，先 `/handoff` 再 `/clear`。離開超過一小時，回來先 `/clear`。和任務無關的小問題用 `/btw` 問，不讓它進入對話歷史。
 3. **並行**：同時最多 2 個實作 session，各自在自己的 worktree；另外可以有 1 個輕量 session 做 spec 或 review。
 4. **視窗節奏**：需要 Opus 的規劃放在 5 小時視窗的前段。5 小時視窗超過 80% 時，改做 review、手寫程式或學習模式。每週視窗在週中就超過 70% 時，改成單線作業，也不做 `/proto`。

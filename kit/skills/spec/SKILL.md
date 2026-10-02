@@ -4,7 +4,7 @@ description: 把需求變成任務卡（有編號、可以機械檢查的驗收�
 argument-hint: "<要做的功能或要修的問題>（留空：從 .solo/inbox.md 挑）"
 disable-model-invocation: true
 model: opus
-effort: high
+effort: max
 metadata:
   kit: solo-ai-team
 ---
@@ -54,7 +54,7 @@ Turn the request into a task card whose acceptance criteria a machine can check.
 7. Write the slug to `.solo/ACTIVE` (the slug only, one line). If the task came from `.solo/inbox.md`, delete that line there.
 8. Reply with the card and the next step:
    - S → implement now; `/check` before calling it done, then `/ship`.
-   - M → run `/clear` first (the new session loads this card automatically), then plan mode (Shift+Tab). The plan is a short list of phases, at most ~150 lines in total:
+   - M → run `/clear` first (the new session loads this card automatically), then `/effort max` for the planning session (plan mode is not a skill, so it plans at the session's level, and max can only be set per session; `/phase` drops back to medium on its own), then plan mode (Shift+Tab). The plan is a short list of phases, at most ~150 lines in total:
      ```
      ## Phase <n> — <goal> · status: todo
      Type: behavior | structural (no behavior change: no assertion may change)

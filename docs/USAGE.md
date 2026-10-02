@@ -188,7 +188,7 @@ The main session reads the code, analyses and designs itself, because a subagent
 ## 7. Usage and interruptions
 
 - In the status line, `ctx` is the context this session has used, and `5h` and `7d` are usage; each turns yellow at 50% and red at 80%. When `ctx` reaches 60%, the status line prompts you to run `/handoff` and then `/clear`.
-- Model: the kit does not pin the session's model; it uses Claude Code's default (as of 2026-09, Opus 5.5 at medium effort on Max). When usage runs tight, use `/model opusplan` (Opus plans, Sonnet implements). `/spec`, `/product`, `/architecture` and `/refresh` set `model: opus`, so they run on Opus whichever model the session uses.
+- Model: the kit does not pin the session's model; it uses Claude Code's default (as of 2026-09, Opus 5.5 at medium effort on Max). When usage runs tight, use `/model opusplan` (Opus plans, Sonnet implements). `/spec`, `/product`, `/architecture` and `/refresh` set `model: opus`, so they run on Opus whichever model the session uses. The first three also run at effort max, whatever the session's level; for plan mode, type `/effort max` at the start of the planning session (it lasts for that session only), and `/phase` returns to medium by itself.
 - On the Max 5x plan, run at most 2 implementation sessions at a time, each in its own worktree (`claude -w <name>`).
 - If you have corrected the same thing twice and it is still wrong, run `/clear` and start again, with what you learned written into the new prompt.
 - When Claude starts going in circles, builds something you did not ask for, or wants to change the tests, press Esc to interrupt.
