@@ -17,7 +17,7 @@ How to install it, use it day to day, configure it and troubleshoot it. The desi
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # should print 82/82 passed
+node selftest.mjs              # should print 89/89 passed
 node install.mjs --user-only   # skills, subagents, status line, personal CLAUDE.md → ~/.claude
 ```
 
@@ -117,9 +117,9 @@ Project level (now and then)
   every task's /spec, /phase and /ship checks against both
 ```
 
-Besides the phase plan, you approve at two points: the task card of an M or L task, and anything that needs a new architectural pattern (a new way of doing something, a new dependency, an exception to a rule). A change to an acceptance line also waits for you. Before planning, /spec checks the architecture impact: which recipe each kind of change follows, and which reference file. While architecture.md is not written yet, it takes the closest existing feature as the reference and proposes adding that recipe.
+Besides the phase plan, you approve at two points: the task card of an M or L task, and anything that needs a new architectural pattern (a new way of doing something, a new dependency, a structural change, a patch that breaks a rule). A change to an acceptance line also waits for you. Before planning, /spec checks the architecture impact: which recipe each kind of change follows, and which reference file. While architecture.md is not written yet, it takes the closest existing feature as the reference and proposes adding that recipe.
 
-Each `/phase`: tests for this phase only → implement → check → code review (only when this phase's diff is large or risky) → commit → mark it done in plan.md. `/ship` runs once, after the last phase: the full check, the test guard, `/secure` (a security review of the whole branch) and a check against the architecture decisions, and then it writes `ship.md`.
+Each `/phase`: tests for this phase only → implement (with a fit check before any patch) → check → code review (only when this phase's diff is large or risky) → commit → mark it done in plan.md. `/ship` runs once, after the last phase: the full check, the test guard, `/secure` (a security review of the whole branch) and a check against the architecture decisions and the patches the branch adds, and then it writes `ship.md`.
 
 For a complete example (who does each step, with which model, and what you review), see [ARCHITECTURE §3](ARCHITECTURE.md).
 
@@ -133,6 +133,16 @@ Just tell Claude. It first decides which level the change belongs to, then handl
 
 Claude never changes an acceptance line on its own; it proposes the change and waits for you. A change to a product rule also updates `product.md` and `decisions.md`. New sessions receive the Change log automatically, so nothing is lost after `/clear`.
 
+### When a change does not fit the structure
+
+Before Claude adds a special case for one id, type, role or tenant, a flag parameter, a near-copy of a function, a suppression (`as any`, `!`, `@ts-ignore`, `eslint-disable`, `#pragma`) or a catch that hides an error, it runs a fit check. It names the concept being decided, finds every place that already decides it, reads the module that owns it according to `architecture.md`, and shows you the searches it ran. Then one of three things happens:
+
+1. **Follow**: the owner already has a place for it (a recipe, a strategy, a table, an extension point), so the change goes there.
+2. **Adjust**: the concept is already special-cased in two or more places, so this would be the third. Claude first proposes a structural change, as its own phase that changes no behavior, and waits for your approval. That phase is done only when `test-guard --structural` finds every assertion unchanged.
+3. **Patch**: a true one-off, or code that cannot change now (a hotfix, vendor code, another team's module). It stays, with one line under Known deviations in `architecture.md` (path · what it bypasses · why · remove when), so later sessions know not to copy it. A patch that breaks a rule (A…) waits for your approval.
+
+You do not have to spot these yourself: when a changed line adds a suppression, an empty catch, a workaround comment, or a pattern one of your architecture rules forbids, the Stop hook's patch guard blocks once. Those patterns come from the architecture, because whether a line is a patch depends on it: `/architecture` turns each rule that one line can break into a `patchGuard.patterns` entry, with the owner's paths allowed, after you approve. A special case that no rule describes leaves no such mark, so for those the fit check depends on Claude, and on review.
+
 ## 5. Situation → command
 
 | Situation | Command | What happens |
@@ -142,6 +152,7 @@ Claude never changes an acceptance line on its own; it proposes the change and w
 | You want to know whether the current changes drift from the architecture | `/architecture check [base]` | Compares only the changes with `architecture.md`: violations, new patterns that need a decision, rules that are out of date |
 | A new feature or a change in requirements | `/spec <request>` | Writes a task card with numbered acceptance criteria that can be checked mechanically, checked against the product rules and recipes; for L tasks or vague requests, it interviews you one question at a time; M and L cards need your approval |
 | Adding or changing a requirement mid-build | Just tell Claude | Claude sorts it first (see §4): inside the phase, it just does it; an acceptance change updates the card's Change log and its tests first; a new feature goes to the inbox |
+| A change does not fit the structure (you want a special case, a flag parameter or an `as any`) | Just tell Claude | Claude runs the fit check first (see §4): it shows its searches, then follows the owner, proposes a structural phase first, or keeps a patch with a line under Known deviations |
 | Not sure what to do next | `/spec` (no request) | Picks three items from `.solo/inbox.md` and suggests them |
 | Planning an M task | `/clear`, then Shift+Tab | The new session loads the task card automatically; the plan is a few short phases, saved as `plan.md` once you approve it |
 | Doing the next phase of an M task | `/phase` | Tests for this phase only → implement by the recipe → check → compare with the reference file → code review when needed → commit → mark it done |
@@ -167,6 +178,7 @@ The main session reads the code, analyses and designs itself, because a subagent
 - After every edit, projects with a Prettier config format the edited file; in a shared repo, only formatting near your change is kept.
 - Before each turn ends, the kit checks the files changed in that turn. When a check fails, Claude fixes it itself, for up to 3 rounds; after that the check pauses until the next edit. The PASS message shows how many seconds each step took.
 - When a test is deleted, commented out, marked skip, or loses assertions, Claude is blocked once and must explain why; after that, every PASS message keeps listing those files.
+- When a changed line adds a suppression (`as any`, `@ts-ignore`, `eslint-disable` …), an empty catch, a workaround comment or a pattern an architecture rule forbids, Claude is blocked once and must run the fit check; after that, every PASS message keeps listing those files.
 - When the only cause of a failure is broken dependencies (for example a `node_modules` that is not installed properly), Claude is not blocked; you are told which restore command to run instead.
 - When Claude notices a problem unrelated to the task, it writes it to `.solo/inbox.md` instead of dealing with it on the spot.
 - After a new session, `/clear` or a compact, the current task card (with its Change log), the current phase and progress load automatically.
@@ -228,6 +240,8 @@ Remember in a shared repo:
 | The kit was updated | `node install.mjs --user-only --force`, then for each project `node install.mjs "D:\work\team-app" --force` (`CLAUDE.local.md`, `config.json`, rules, `product.md` and `architecture.md` are never overwritten; `settings.local.json` is merged: older kit hooks are replaced and your own hooks are kept; the `opusplan` setting that older versions wrote is removed, and Claude Code's default model is used instead. An older `CLAUDE.local.md` only gets two import lines, and the new Workflow is saved as `.solo/CLAUDE.local.suggested.md`: ask Claude to "merge the Map, Workflow and Compact instructions sections of the suggested file into CLAUDE.local.md and keep the lines I added") | kit folder |
 | Run the fast checks by hand | `node .solo/engine/check.mjs --stage stop --changed` | project folder |
 | Check by hand whether tests got weaker | `node .solo/engine/test-guard.mjs --base auto` | project folder |
+| List the patches a branch adds (suppressions, empty catches, workaround comments, broken architecture rules) | `node .solo/engine/patch-guard.mjs --base auto` | project folder |
+| Check that a structural phase changed no assertion | `node .solo/engine/test-guard.mjs --structural` | project folder |
 | See trends per mistake category, and mistakes that repeat | `node .solo/engine/ledger.mjs list --since 30d` | project folder |
 | One Stop hook step is slow on every turn (the PASS message shows the seconds, for example over 20 seconds every turn) | In `.solo/config.json`, move that step from `stop` to `full`, so it runs only during `/check` and `/ship` | project folder |
 | Audit the whole project for hard-coded design values | `node .solo/engine/token-guard.mjs <files>` | project folder |
@@ -266,6 +280,7 @@ Notes:
 | `review` | `minLines` (review required at this many changed lines or more, default 300), `splitLines` (at this many or more, splitting the PR is suggested, default 400), `alwaysPaths` (paths that always require review), `ignore` (files not counted, such as lockfiles) |
 | `disabledSteps` | Check steps turned off for now, for example `["angular/test"]`; `--reconfigure` does not clear it |
 | `testGuard` | `enabled` (default `true`), `files` (which files count as tests; by default `*.spec.ts`, `*.test.*`, `*Tests.cs`, `test_*.py` and more) |
+| `patchGuard` | `enabled` (default `true`); `allow` (paths where suppressions are by design, such as an adapter around an untyped library; it replaces the default list of generated code, so keep those entries); `patterns` (the architecture's rules that one changed line can break: `{ rule, name, in, re, allow }`, proposed by `/architecture` and `/learn`). Test files are left to `testGuard` |
 | `ui` | `enabled`, `root`, `baseUrl`, `serve`, `routes`, `viewports`, used by `snap.mjs` for screenshots |
 | `tokenGuard` | `enabled`, `files`, `allow`, `rules` (`hexColor`, `colorFunction`, `inlineStyle`, `styleBinding`, `arbitraryValue`) |
 | `ship` | `mode`: `manual` (prepare only, no git; the default in shared repos), `commit` (commit locally only), `pr`, `direct`; `base` (the comparison base; empty means auto-detect) |

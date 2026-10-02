@@ -17,7 +17,7 @@
 ```powershell
 git clone https://github.com/yapeepee/workflow.git D:\tools\solo-ai-team
 cd D:\tools\solo-ai-team
-node selftest.mjs              # 應該顯示 82/82 passed
+node selftest.mjs              # 應該顯示 89/89 passed
 node install.mjs --user-only   # skills、子代理、狀態列、個人 CLAUDE.md → ~/.claude
 ```
 
@@ -117,9 +117,9 @@ L（跨模組，或超過一天）
   每個任務的 /spec、/phase、/ship 都會對照這兩份
 ```
 
-除了 phase 計畫之外，你只在兩個地方核准：M/L 任務的任務卡，以及需要新架構做法的時候（新的做法、新的依賴、規則的例外）。要改驗收條件時，Claude 也會先問你。/spec 會在規劃前先做「架構影響」：每種改動照哪個標準做法、參考哪個檔案。architecture.md 還沒寫的時候，它會拿最接近的既有功能當參考檔案，並提議把這個做法加進去。
+除了 phase 計畫之外，你只在兩個地方核准：M/L 任務的任務卡，以及需要新架構做法的時候（新的做法、新的依賴、結構調整、違反規則的補丁）。要改驗收條件時，Claude 也會先問你。/spec 會在規劃前先做「架構影響」：每種改動照哪個標準做法、參考哪個檔案。architecture.md 還沒寫的時候，它會拿最接近的既有功能當參考檔案，並提議把這個做法加進去。
 
-每個 `/phase`：只寫這個 phase 的測試 → 實作 → 檢查 → 這個 phase 的 diff 大或有風險時才 code review → commit → 在 plan.md 標記完成。`/ship` 在最後一個 phase 之後跑一次：完整檢查、test guard、`/secure`（整個分支的安全審查）、比對架構決策、寫 `ship.md`。
+每個 `/phase`：只寫這個 phase 的測試 → 實作（加補丁前先做 fit check）→ 檢查 → 這個 phase 的 diff 大或有風險時才 code review → commit → 在 plan.md 標記完成。`/ship` 在最後一個 phase 之後跑一次：完整檢查、test guard、`/secure`（整個分支的安全審查）、比對架構決策和這個分支新增的補丁、寫 `ship.md`。
 
 完整的例子（每一步由誰做、用哪個模型、你要看什麼）見 [ARCHITECTURE §3](ARCHITECTURE.zh-TW.md)。
 
@@ -133,6 +133,16 @@ L（跨模組，或超過一天）
 
 Claude 不能自己修改驗收條件，只能提議、等你同意。改到產品規則時，也會一起更新 `product.md` 和 `decisions.md`。新 session 會自動帶入 Change log，所以 `/clear` 之後也不會忘記。
 
+### 改動放不進現有結構時
+
+Claude 要加以下任何一種東西之前，會先做 fit check：針對單一 id、type、角色或 tenant 的 special case、flag 參數、幾乎照抄的函式、suppression（`as any`、`!`、`@ts-ignore`、`eslint-disable`、`#pragma`），或吞掉錯誤的 catch。它會說出這次要決定的是哪個概念，找出所有已經在決定它的地方，讀 `architecture.md` 裡負責這個概念的模組，並把跑過的搜尋列給你看。接著三選一：
+
+1. **Follow（跟隨架構）**：負責的模組已經有放這種改動的位置（標準做法、strategy、表格、擴充點），改動就寫在那裡。
+2. **Adjust（調整架構）**：這個概念已經在兩個以上的地方被特別處理，這次會是第三個。Claude 先提議一個結構調整，自成一個不改行為的 phase，等你核准；這個 phase 要 `test-guard --structural` 確認斷言一個都沒變才算完成。
+3. **Patch（補丁）**：真的只出現一次，或是現在改不動的程式（hotfix、第三方程式、其他團隊的模組）。補丁保留下來，並在 `architecture.md` 的 Known deviations 登記一行（path · 繞過什麼 · 為什麼 · 何時移除），之後的 session 就知道不要照抄。違反規則（A…）的補丁要等你核准。
+
+這些不用你自己盯：改動的行出現 suppression、空的 catch、workaround 註解，或你的架構規則禁止的寫法時，Stop hook 的 patch guard 會擋一次。這些寫法來自架構，因為一行算不算補丁要看架構：`/architecture` 會把每一條「一行程式就能違反」的規則，變成一條 `patchGuard.patterns`，擁有者的路徑設成允許，你核准後才寫入。沒有任何規則描述的 special case 不會留下這種標記，所以這類只能靠 Claude 自己的 fit check 和 review。
+
 ## 5. 情境與指令對照
 
 | 情境 | 指令 | 會發生什麼 |
@@ -142,6 +152,7 @@ Claude 不能自己修改驗收條件，只能提議、等你同意。改到產�
 | 想確認目前的改動有沒有偏離架構 | `/architecture check [base]` | 只比對改動和 `architecture.md`，列出違規、需要決定的新做法和過時的規則 |
 | 要做新功能或修改需求 | `/spec <需求>` | 寫出任務卡和有編號、可以機械檢查的驗收條件，對照產品規則和標準做法；L 任務或需求模糊時，逐題訪談你；M/L 任務要你核准 |
 | 做到一半要加或改需求 | 直接跟 Claude 說 | Claude 先分級（見 §4）：範圍內直接做；改到驗收條件先更新任務卡的 Change log 和測試；新功能記進 inbox |
+| 改動放不進現有結構（想加 special case、flag 參數或 `as any`） | 直接跟 Claude 說 | Claude 先做 fit check（見 §4）：列出搜尋結果，再照擁有者的位置寫、先提議結構調整的 phase，或保留補丁並在 Known deviations 登記一行 |
 | 不確定下一件做什麼 | `/spec`（不帶需求） | 從 `.solo/inbox.md` 挑三件事建議你 |
 | M 任務要規劃 | `/clear`，再按 Shift+Tab | 新 session 自動載入任務卡；計畫是幾個短的 phase，核准後存成 `plan.md` |
 | 做 M 任務的下一個 phase | `/phase` | 只寫這個 phase 的測試 → 照標準做法實作 → 檢查 → 對照參考檔案 → 需要時 code review → commit → 標記完成 |
@@ -167,6 +178,7 @@ Claude 不能自己修改驗收條件，只能提議、等你同意。改到產�
 - 每次編輯後，有 Prettier 設定的專案會自動格式化該檔案；在共用 repo 裡，只保留改動附近的格式化。
 - 每一輪結束前，套件會檢查這一輪改過的檔案。檢查失敗時，Claude 會自己修，最多 3 輪；之後暫停，直到下一次編輯。PASS 訊息會顯示每一步花了幾秒。
 - 測試被刪除、被註解掉、被加上 skip，或斷言變少時，Claude 會被擋一次並要說明理由；之後的 PASS 訊息會一直列出這些檔案。
+- 改動的行出現 suppression（`as any`、`@ts-ignore`、`eslint-disable` 等）、空的 catch、workaround 註解或架構規則禁止的寫法時，Claude 會被擋一次並要做 fit check；之後的 PASS 訊息會一直列出這些檔案。
 - 失敗的原因只有依賴壞掉（例如 `node_modules` 沒裝好）時，不會擋 Claude，而是直接告訴你要執行哪個還原指令。
 - Claude 發現和任務無關的問題時，會記進 `.solo/inbox.md`，不會當場處理。
 - 開新 session、`/clear` 或 compact 之後，目前的任務卡（含 Change log）、目前的 phase 和進度會自動載入。
@@ -228,6 +240,8 @@ Claude 不能自己修改驗收條件，只能提議、等你同意。改到產�
 | 套件更新了 | `node install.mjs --user-only --force`，再對每個專案執行 `node install.mjs "D:\work\team-app" --force`（`CLAUDE.local.md`、`config.json`、rules、`product.md`、`architecture.md` 不會被覆寫；`settings.local.json` 會合併，舊版的套件 hook 會被換掉，你自己的 hook 保留；舊版寫入的 `opusplan` 會被移除，改用 Claude Code 的預設模型。舊版的 `CLAUDE.local.md` 只會補上兩行匯入，新版的 Workflow 另存成 `.solo/CLAUDE.local.suggested.md`：請 Claude「把 suggested 檔的 Map、Workflow 和 Compact instructions 合併進 CLAUDE.local.md，保留我加的行」） | 套件資料夾 |
 | 手動跑快速檢查 | `node .solo/engine/check.mjs --stage stop --changed` | 專案資料夾 |
 | 手動檢查測試有沒有變弱 | `node .solo/engine/test-guard.mjs --base auto` | 專案資料夾 |
+| 列出這個分支新增的補丁（suppression、空的 catch、workaround 註解、違反的架構規則） | `node .solo/engine/patch-guard.mjs --base auto` | 專案資料夾 |
+| 確認結構調整的 phase 沒有改到任何斷言 | `node .solo/engine/test-guard.mjs --structural` | 專案資料夾 |
 | 看錯誤類別的趨勢和一再重複的錯誤 | `node .solo/engine/ledger.mjs list --since 30d` | 專案資料夾 |
 | Stop hook 的某一步每輪都很慢（PASS 訊息會顯示秒數，例如每輪都超過 20 秒） | 把那一步從 `.solo/config.json` 的 `stop` 移到 `full`，只在 `/check` 和 `/ship` 時跑 | 專案資料夾 |
 | 全專案稽核寫死的設計值 | `node .solo/engine/token-guard.mjs <files>` | 專案資料夾 |
@@ -266,6 +280,7 @@ Claude 不能自己修改驗收條件，只能提議、等你同意。改到產�
 | `review` | `minLines`（改動達到這個行數就要 review，預設 300）、`splitLines`（達到就建議拆 PR，預設 400）、`alwaysPaths`（碰到就一定 review 的路徑）、`ignore`（不計入行數的檔案，例如 lockfile） |
 | `disabledSteps` | 暫時停用的檢查步驟，例如 `["angular/test"]`；`--reconfigure` 不會清掉它 |
 | `testGuard` | `enabled`（預設 `true`）、`files`（哪些檔案算測試檔；預設涵蓋 `*.spec.ts`、`*.test.*`、`*Tests.cs`、`test_*.py` 等） |
+| `patchGuard` | `enabled`（預設 `true`）；`allow`（刻意允許 suppression 的路徑，例如包無型別第三方 API 的 adapter；設定後會取代預設的自動產生程式碼清單，所以要保留那幾項）；`patterns`（一行程式就能違反的架構規則：`{ rule, name, in, re, allow }`，由 `/architecture` 和 `/learn` 提議）。測試檔交給 `testGuard` |
 | `ui` | `enabled`、`root`、`baseUrl`、`serve`、`routes`、`viewports`，給 `snap.mjs` 截圖用 |
 | `tokenGuard` | `enabled`、`files`、`allow`、`rules`（`hexColor`、`colorFunction`、`inlineStyle`、`styleBinding`、`arbitraryValue`） |
 | `ship` | `mode`：`manual`（只準備，不動 git；共用 repo 的預設）、`commit`（只在本機 commit）、`pr`、`direct`；`base`（比較基準，空白表示自動偵測） |

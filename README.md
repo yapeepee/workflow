@@ -17,6 +17,7 @@ A Claude Code setup — 15 skills, 4 subagents, 3 hooks, a status line and a zer
 | Plans are built on a subagent's summary, and nobody has seen the whole | A subagent starts with only its task message, not the conversation or the files already read, so the main session reads the code and plans itself; the scout only runs exhaustive searches, and side tasks that need the big picture run as a fork; `product.md` and `architecture.md` are imported by `CLAUDE.local.md`, so every session and subagent starts from the same rules | `CLAUDE.local.md`, `/spec` |
 | New features are each built their own way instead of following the architecture | `architecture.md` lists the rules and, for each kind of change, the recipe and its reference file; `/spec` checks the architecture impact before planning and asks you before any new pattern; `/phase` compares each phase with its reference file; `/ship` checks the whole branch for drift | `/architecture`, `/spec`, `/phase`, `/ship` |
 | Requirements change mid-build and the task card and tests drift from the code | Three-level triage: inside the phase, just do it; an acceptance change updates the card's Change log and its tests first; a new feature goes to the inbox. Claude never changes an acceptance line on its own, and new sessions get the Change log | `CLAUDE.local.md`, `hook-session-start.mjs` |
+| A change patches around the structure (a special case, `as any`, a swallowed error) and the next session copies it | The fit check: before a patch, Claude finds every place that decides the same concept, then follows its owner, adjusts the structure first in a phase whose assertions `test-guard --structural` holds unchanged, or keeps the patch with a line under Known deviations that later sessions see; the patch guard blocks once when a changed line adds a suppression, an empty catch, or a pattern one of the project's architecture rules forbids | `CLAUDE.local.md`, `patch-guard.mjs`, `test-guard.mjs` |
 | A large task runs for hours before anything is reviewed or committed | `/phase` works through the plan one phase at a time: tests for that phase only, checks, a review of just that phase's diff, then a commit | `/phase`, `check.mjs --review-gate --base HEAD` |
 | Your review time is the bottleneck | You review the task card, the phase plan, test names and evidence; code review runs only for a phase with 300+ changed lines or risky paths | `/phase`, `/ship` |
 | Security review is a routine scan that reports nothing | `/secure`: one careful review of the whole branch against the project's own threat model; every finding needs a concrete attack, and the report lists what it verified | `/secure`, `security-reviewer` |
@@ -36,7 +37,7 @@ Requires Node.js 18 or later, git and a recent Claude Code (`claude update`). Ru
 ```bash
 git clone https://github.com/yapeepee/workflow.git solo-ai-team   # anywhere outside your project repos
 cd solo-ai-team
-node selftest.mjs                          # 82/82 passed
+node selftest.mjs                          # 89/89 passed
 node install.mjs --user-only               # once per computer: skills, subagents, status line → ~/.claude
 node install.mjs "<repo root>" --dry-run   # preview: lists every file it would create
 node install.mjs "<repo root>"             # once per repo; ends with "git status: unchanged"
@@ -56,20 +57,20 @@ project level (now and then)    /product: product rules · /architecture: rules,
                                 every task's /spec, /phase and /ship checks against both
 ```
 
-What you review is small and high-leverage: the task card, the phase plan, each phase's test names, the check results, the security report and screenshots. Besides the phase plan, you approve at two points: the task card of an M or L task, and any new architectural pattern; a change to an acceptance line also waits for you. The steps in between are checked by tools.
+What you review is small and high-leverage: the task card, the phase plan, each phase's test names, the check results, the security report and screenshots. Besides the phase plan, you approve at two points: the task card of an M or L task, and any new architectural pattern or structural change; a change to an acceptance line also waits for you. The steps in between are checked by tools.
 
 ## Commands
 
 | command | when | what happens |
 |---|---|---|
 | `/product [focus]` | when a project of your own starts; when a product rule changes | builds or updates `.solo/product.md` through an interview: roles, core flows, product rules (P1…), what it does not do, open questions |
-| `/architecture [check]` | when you start on an existing project; now and then | the main session reads the whole codebase and writes `.solo/architecture.md`: rules (A1…), the recipe and reference file for each kind of change, known deviations; plus a list of problems and of rules a tool could check. `check` compares only the current changes |
+| `/architecture [check]` | when you start on an existing project; now and then | the main session reads the whole codebase and writes `.solo/architecture.md`: rules (A1…), the recipe and reference file for each kind of change, the module that owns each core decision, known deviations; plus a list of problems and of rules a tool could check. `check` compares only the current changes |
 | `/spec <request>` | before any non-trivial work | a task card with numbered, machine-checkable acceptance criteria, checked against the product rules and recipes; interviews you for large or vague requests; M and L cards need your approval, and so does any new pattern; with no request, picks 3 items from `.solo/inbox.md` |
-| `/phase [n]` | each phase of an M task | tests for this phase only → implement by the recipe → checks → comparison with the reference file → code review of this phase's diff when it is large or risky → commit → phase marked done |
+| `/phase [n]` | each phase of an M task | tests for this phase only → implement by the recipe, with a fit check before any patch → checks → comparison with the reference file → code review of this phase's diff when it is large or risky → commit → phase marked done |
 | `/test-first [n]` | tests for one phase on their own (`/phase` already does this) | a separate subagent writes failing acceptance tests: whoever writes the exam does not write the answers |
 | `/check` | before calling anything done | full lint, types, tests and build through the compact runner; screenshots if UI capture is configured |
 | `/secure [focus]` | run by `/ship`; any time you want an early look | a careful review of the whole branch against `.solo/security.md`, which its first run builds with you |
-| `/ship [manual\|commit\|pr\|direct]` | once per task, after the last phase | full check → test guard → review of anything not yet reviewed → `/secure` → decisions and `architecture.md` check → `ship.md` with the acceptance map, the PR text and a metrics line; in shared repos, git is left to you |
+| `/ship [manual\|commit\|pr\|direct]` | once per task, after the last phase | full check → test guard → review of anything not yet reviewed → `/secure` → decisions, `architecture.md` and patches check → `ship.md` with the acceptance map, the PR text and a metrics line; in shared repos, git is left to you |
 | `/learn` | end of a task | lessons go into the ledger under a pattern; the third repeat of the same mistake escalates to a mechanical check |
 | `/handoff` | context above 60 %, or a long break | progress goes to a file; after `/clear` the next session picks it up |
 | `/bugfix <symptom>` | a bug | reproduce → root cause → regression test → fix |
@@ -87,7 +88,7 @@ Model: the kit does not pin the session's model, so Claude Code's default applie
 | hook | when | what it does |
 |---|---|---|
 | PostToolUse | after every edit | formats the edited file if the repo declares Prettier (in shared repos, only formatting next to your edit is kept); optional token guard |
-| Stop | when Claude ends a turn that edited files | fast checks and the test guard on the edited files; blocks with the error lines only, at most 3 rounds; the PASS line shows the seconds each step took; problems Claude cannot fix by editing code (broken dependencies, a check that edits files) go to you instead |
+| Stop | when Claude ends a turn that edited files | fast checks, the test guard and the patch guard on the edited files; blocks with the error lines only, at most 3 rounds; the PASS line shows the seconds each step took; problems Claude cannot fix by editing code (broken dependencies, a check that edits files) go to you instead |
 | SessionStart | start, resume, `/clear`, compact | re-injects the active task card (with its Change log), the current phase and progress; backs up your private files and warns if the team starts tracking them |
 | status line | always | `Opus · ctx 34% · 5h 23% (resets 14:00) · 7d 41% · main* · task:login-form` |
 
@@ -102,9 +103,9 @@ A repo counts as **shared** when anyone other than you (by `git config user.emai
 ```
 solo-ai-team/
 ├─ install.mjs          installer: never deletes, never edits tracked files, never runs git commands that write
-├─ selftest.mjs         82 checks in throwaway git repos: engine, private install, shared-repo mode
+├─ selftest.mjs         89 checks in throwaway git repos: engine, private install, shared-repo mode
 ├─ kit/
-│  ├─ engine/           hooks, check runner, test guard, token guard, ledger, snap, status line
+│  ├─ engine/           hooks, check runner, test guard, patch guard, token guard, ledger, snap, status line
 │  │                    (Node, no dependencies) → <repo>/.solo/engine/
 │  ├─ skills/           15 skills → ~/.claude/skills/
 │  ├─ agents/           scout, test-author, security-reviewer, prototyper → ~/.claude/agents/
@@ -126,22 +127,23 @@ solo-ai-team/
 7. **Keep memory small.** A private `CLAUDE.local.md` under 150 lines, framework rules imported, workflows in skills that cost nothing until called.
 8. **Deleting is work.** `/sweep` every week, `/refresh` after every new model.
 9. **Leave no trace in a team repo.** The kit's own files never reach git, git writes happen only when you ask, and lines nobody changed are never reformatted.
+10. **A patch is a decision, judged against the architecture.** The kit flags what silences a check; the project's architecture rules declare the rest. Before a patch, Claude finds every place that decides the same concept and chooses: follow its owner, adjust the structure first, or keep a registered patch. A third special case of one concept means the structure has to change.
 
 The ten principles behind these, each traced from the practice it comes from to why it works to how the kit does it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Verified / not verified
 
-**Verified by `selftest.mjs` (82 checks)** on Windows 11, natively, and on Linux, both with Node 22 (2026-09-29), and by [CI](.github/workflows/selftest.yml) on Ubuntu + Windows × Node 18/22 on every push. It builds throwaway git repos (paths with spaces, a fake remote, two clones), runs git with an empty config of its own, and drives the hooks the way Claude Code calls them: `node <script>` with JSON on stdin.
+**Verified by `selftest.mjs` (89 checks)** natively on Windows 11 with Node 22 (2026-10-02; the 82 checks before the patch guard also on Linux, 2026-09-29), and by [CI](.github/workflows/selftest.yml) on Ubuntu + Windows × Node 18/22 on every push. It builds throwaway git repos (paths with spaces, a fake remote, two clones), runs git with an empty config of its own, and drives the hooks the way Claude Code calls them: `node <script>` with JSON on stdin.
 
-- Engine: format-on-edit; Stop hook block → fix → pass → silent; the 3-round cap; seconds per step in the PASS line; subagent edits not chased; the token guard on changed lines and in shared mode; the test guard (JS/TS, xUnit, pytest; skipped, commented-out, deleted and moved tests); `ENV`, `CHANGED FILES`, `SUITE DID NOT RUN`, `disabledSteps`; the baseline across line shifts; the review gate, its split suggestion, and `--base HEAD` for one phase; ledger escalation only when the same mistake repeats; the status line; SessionStart injection of the task card, its Change log and the current phase; the hook launcher from a subfolder, and as a no-op where the kit is not installed; a repo opened through a junction or symlink.
-- Installer: `git status` unchanged, `.gitignore` untouched, `git add -A` stages nothing; every skill and agent installed with the kit's marker; teammates committing their own Claude files; reinstalling keeps your own hooks, drops the model an older kit pinned and keeps a model you chose; `product.md` and `architecture.md` created and imported by `CLAUDE.local.md`, while an older `CLAUDE.local.md` only gets the imports and the new Workflow as a suggestion file; backup and warning when the team starts tracking `CLAUDE.local.md`; refusal when the repo tracks a personal path; shared vs. personal detection; `--fix` stripping; dependency health notes; `--shared --reconfigure`; installing through a junction or symlink.
+- Engine: format-on-edit; Stop hook block → fix → pass → silent; the 3-round cap; seconds per step in the PASS line; subagent edits not chased; the token guard on changed lines and in shared mode; the test guard (JS/TS, xUnit, pytest; skipped, commented-out, deleted and moved tests); the patch guard (changed lines only, blocks once and then flags, an architecture rule's pattern outside its owner only, generated code and `patchGuard.allow` left alone, the whole branch from its CLI, test files left to the test guard); `test-guard --structural` (a changed assertion is reported, a test moved to another file is not); `ENV`, `CHANGED FILES`, `SUITE DID NOT RUN`, `disabledSteps`; the baseline across line shifts; the review gate, its split suggestion, and `--base HEAD` for one phase; ledger escalation only when the same mistake repeats; the status line; SessionStart injection of the task card, its Change log and the current phase; the hook launcher from a subfolder, and as a no-op where the kit is not installed; a repo opened through a junction or symlink.
+- Installer: `git status` unchanged, `.gitignore` untouched, `git add -A` stages nothing; every skill and agent installed with the kit's marker; teammates committing their own Claude files; reinstalling keeps your own hooks, drops the model an older kit pinned and keeps a model you chose; `product.md` and `architecture.md` created and imported by `CLAUDE.local.md`, while an older `CLAUDE.local.md` only gets the imports and the new Workflow (the requirement triage and the fit check) as a suggestion file; backup and warning when the team starts tracking `CLAUDE.local.md`; refusal when the repo tracks a personal path; shared vs. personal detection; `--fix` stripping; dependency health notes; `--shared --reconfigure`; installing through a junction or symlink.
 
 **Checked by hand, not in CI (2026-09):** a real Angular 22 app in a Linux VM ([ARCHITECTURE §15](docs/ARCHITECTURE.md)); a TypeScript project with eslint, tsc, vitest and Prettier; the shared-repo formatter revert with real Prettier 3; git 2.43 overwriting an excluded file on pull; 8.3 short names, by running the whole selftest with its fixtures under a short-name path; the target `/phase` and `/ship` give the built-in `/code-review` (Claude Code 2.1.284, a throwaway repo): without it, the review covered a commit not yet pushed, and with it, only the uncommitted edit and the new file.
 
 **Not verified:**
 
 - **The model side.** Whether Claude writes good task cards, plans, tests and security reviews when it follows the skills. Fixtures do not measure judgment; only use does.
-- **`/product`, `/architecture` and the requirement-change triage on a real task.** They rest on Claude Code's documentation (subagents do not see the conversation) and outside research ([ARCHITECTURE §18](docs/ARCHITECTURE.md)); not yet measured on real work.
+- **`/product`, `/architecture`, the requirement-change triage and the fit check on a real task.** They rest on Claude Code's documentation (subagents do not see the conversation) and outside research ([ARCHITECTURE §18 and §19](docs/ARCHITECTURE.md)); not yet measured on real work.
 - **The phase loop and `/secure` on a real task.** Both come from one real project's records (four milestones), and the selftest covers only their engine parts. Whether they shorten a task, and whether `/secure` finds what the generic scan missed, will show in `/ship`'s metrics line and in `/retro`; not measured yet.
 - **A live Claude Code session.** The selftest replays the exact hook `command` and `args` from `kit/settings.json`, which is how Claude Code runs them, but it is a replay.
 - **Usage savings.** No numbers yet. Measure with `/usage` and the status line.
@@ -166,6 +168,7 @@ Most mechanisms here exist because something concrete went wrong.
 - **Plans were built on subagent summaries, and a subagent never sees the whole** (2026-09, confirmed against Claude Code's documentation). A regular subagent starts with its own prompt, the task message, CLAUDE.md and git status, not the conversation or the files the main model read; the built-in Explore and Plan agents skip even CLAUDE.md. A stronger model cannot make up for that → the main session reads the code and plans itself (Opus 5.5 has a 1M context on Max); the scout only runs exhaustive searches; side tasks that need the big picture run as a fork; product and architecture rules live in `product.md` and `architecture.md`, imported by `CLAUDE.local.md`, so every session and every custom subagent loads them.
 - **Claude changed acceptance lines on its own mid-build** (same project). When a measured result differed from what the spec assumed, Claude rewrote the acceptance line and the script behind it → requirement changes go through a three-level triage, Claude may only propose an acceptance change, and approved changes go into the card's Change log, which new sessions receive.
 - **The kit pinned the model to an old price list** (2026-09). `opusplan` ran implementation on Sonnet because Opus used to cost far more, so that project's first milestones were most likely written by Sonnet 5 → the kit leaves the model to Claude Code's default, `test-author` and `security-reviewer` inherit it, and a reinstall removes the old pin.
+- **Patches piled up while every check passed** (the author's large projects and long chains of sessions; the gaps were found in a review of the kit, 2026-10). A special case, an `as any` or a swallowed error is the cheapest way to turn a check green, so no check saw one and the ledger never counted one. The rule against it was prose shown only when a check failed, and the next session copied the patch because its reason was gone after `/clear` → the fit check before any patch (follow the owner, adjust the structure first, or keep a patch with a line under Known deviations), the patch guard on changed lines, with the project's own patterns derived from its architecture rules, and `test-guard --structural` for the phase that adjusts the structure.
 
 ## Lineage
 
@@ -176,7 +179,7 @@ Solo AI Team succeeds [`claude-quality-harness-v3`](https://github.com/yapeepee/
 | document | read it for |
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | installing; existing and new projects; every command; what runs automatically; configuration; troubleshooting; uninstalling |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | why it is built this way: ten principles and their sources, memory layers, verification, security review, usage budget, private install, lineage, the field test, the big picture and requirement changes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | why it is built this way: ten principles and their sources, memory layers, verification, security review, usage budget, private install, lineage, the field test, the big picture and requirement changes, patches and the fit check |
 
 The principles draw on practices that the Claude Code team and other practitioners have published; ARCHITECTURE cites every source. This is an independent project, not affiliated with Anthropic.
 

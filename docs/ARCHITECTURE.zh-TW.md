@@ -146,7 +146,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 | 團隊的專案層 | repo 裡的 `CLAUDE.md`（如果團隊有） | 每個 session | 團隊的規範 | 套件不會修改它 |
 | 你的專案層 | `CLAUDE.local.md` | 每個 session | 指令、目錄地圖、流程、Gotchas | linter 能檢查的規則 |
 | 產品規則 | `.solo/product.md`（由 `CLAUDE.local.md` 匯入） | 每個 session 和每個自訂子代理 | 角色、核心流程、產品規則（P1…）、不做的事、待決問題；約 120 行以內 | 功能清單 |
-| 架構規則 | `.solo/architecture.md`（由 `CLAUDE.local.md` 匯入） | 每個 session 和每個自訂子代理 | 規則（A1…）、每種改動的標準做法和參考檔案、已知例外；約 200 行以內 | 目錄導覽、程式碼本身看得出來的事 |
+| 架構規則 | `.solo/architecture.md`（由 `CLAUDE.local.md` 匯入） | 每個 session 和每個自訂子代理 | 規則（A1…）、每種改動的標準做法和參考檔案、每個核心決定由哪個模組負責、已知例外（刻意保留的補丁）；約 200 行以內 | 目錄導覽、程式碼本身看得出來的事 |
 | 框架規則 | `.solo/rules/*.md`（由 `CLAUDE.local.md` 匯入） | 每個 session | 框架和語言的規則 | 全專案通用的規則 |
 | 流程 | `~/.claude/skills/*/SKILL.md` | 被呼叫時；只限使用者呼叫的 skill 連描述都不載入 | 做事的步驟 | 專案事實 |
 | 任務狀態 | `.solo/tasks/<slug>/` | SessionStart 自動注入任務卡、目前的 phase 和進度 | spec、plan、progress、證據 | 長期知識 |
@@ -166,13 +166,13 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 | 層級 | 觸發時機 | 內容 | 時間 | 對 token 的影響 |
 |---|---|---|---|---|
 | PostToolUse hook | 每次編輯檔案 | 格式化該檔案；選用的 token-guard | 通常 1 到 2 秒 | 沒有違規就是 0 |
-| Stop hook | 每一輪結束，而且這一輪有編輯 | 對改過的檔案跑 lint、typecheck、相關測試；test guard 比對測試有沒有變弱 | 數秒到數十秒 | 失敗才回傳錯誤行 |
+| Stop hook | 每一輪結束，而且這一輪有編輯 | 對改過的檔案跑 lint、typecheck、相關測試；test guard 比對測試有沒有變弱，patch guard 看改動的行有沒有加了補丁 | 數秒到數十秒 | 失敗才回傳錯誤行 |
 | `/check` | 宣稱完成之前 | 完整 lint、測試、build，UI 截圖 | 分鐘級 | 只回傳摘要 |
 | `/phase` | 每個 phase | 這個 phase 的測試和快速檢查；review gate 只量這個 phase 的 diff，大或有風險才 `/code-review` | 視 phase 大小 | review 只在需要時跑 |
 | `/ship` | 每個任務一次 | 完整檢查、test guard、還沒 review 過的改動、`/secure`（整個分支的安全審查）、比對架構決策 | 分鐘級 | 安全審查每個任務一次 |
 | `/sweep` | 每週 | 死碼、依賴、TODO | 視專案而定 | 候選清單最多 20 項 |
 
-### 5.2 讓檢查可信又省 token 的八個機制
+### 5.2 讓檢查可信又省 token 的九個機制
 
 1. **摘要輸出。** check runner 只把錯誤行（附一行上下文）和 log 路徑交給 Claude，其餘輸出寫進 `.solo/logs/`。Claude 需要更多資訊時再自己讀 log。
 2. **重試上限。** Stop hook 最多連續擋三輪。第三輪之後還是失敗，就讓 Claude 停下，並暫停檢查到下一次編輯，避免修不好的錯誤一直燒額度。
@@ -182,6 +182,7 @@ context 用量超過 50–60%，或你要離開超過一小時，先 `/handoff` 
 6. **分辨「環境壞掉」和「程式碼有錯」。** `node_modules` 沒裝好或只裝一半時，每個檢查都會出現 `Cannot find module '...node_modules...'`。這不是改程式碼能修好的；如果照常擋下 Claude，它可能去改程式碼，或執行 `npm install` 改寫團隊的 lockfile。所以 runner 把這類失敗標成 `ENV`，並附上正確的還原指令（`npm ci`、`pnpm install --frozen-lockfile`、`dotnet restore`）；只有環境錯誤時，Stop hook 不擋 Claude，改成直接告訴你該執行哪個指令；`--update-baseline` 也不會把環境錯誤記成已知問題。安裝時就會檢查直接依賴的入口檔是否存在，提早發現問題；新增或移除依賴的指令都列在 ask 規則裡。
 7. **檢查本身不能改檔案。** 團隊的 lint script 常帶著 `--fix`（實際在一個團隊 repo 遇過），照原樣執行就會改寫團隊的檔案。所以安裝程式遇到會改檔案的 script（`--fix`、`--write`、`-u`）時不照原樣執行：單一的 eslint 或 ng lint 呼叫會拿掉 `--fix` 再執行，其他情況改用單純的 `eslint .`。runner 另外在每個步驟前後比對被追蹤檔案相對 HEAD 的 diff，步驟執行後有檔案不一樣，那一步就算失敗並列出被改的檔案（`CHANGED FILES`），Stop hook 也會把它交給你，而不是擋下 Claude。同一類的防護還有：測試執行器連測試都載入不了（例如 Karma 的 `Found 1 load error`）時，代表一個測試都沒跑，這種結果不能記進 baseline，否則這一步會在零個測試的情況下變綠燈；報告會標成 `SUITE DID NOT RUN`，可以先用 `disabledSteps` 暫時停用。
 8. **看得到成本。** Stop hook 每一輪都會跑，所以 PASS 訊息會列出每一步花了幾秒。某一步每輪都很慢（例如超過 20 秒），就把它從 `stop` 移到 `full`，只在 `/check` 和 `/ship` 時跑。
+9. **檢查通過時也要看 diff。** 讓檢查變綠最便宜的方法就是補丁：`as any`、`@ts-ignore`、`eslint-disable`、`#pragma warning disable`、吞掉錯誤的 catch。檢查通過時看不到它，而禁止它的規則以前只是文字，而且只在檢查失敗時才出現。所以 Stop hook 也對這一輪改過的行跑 patch guard（HEAD 裡原本就有的行不算這次編輯的決定，測試檔交給 test guard）：新的補丁擋一次，要求做 fit check（§19），之後 PASS 訊息會一直列出這個檔案。它找的東西分成兩層，因為一行算不算補丁要看架構：套件自己的清單（讓檢查閉嘴的寫法），以及專案架構規則宣告的 pattern（§19.3）。和 test guard 一樣是純文字比對，不花 token。
 
 ### 5.3 規則升級的階梯
 
@@ -347,7 +348,9 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 - **換行必須是 LF。** 安裝程式用以 `\n` 錨定的 regex 解析模板。git clone 由 `.gitattributes` 保證 LF；用其他方式複製、被轉成 CRLF 的檔案，會讓規則模板的 front matter 剝不乾淨。
 - **安全審查的成本。** `/secure` 讓強模型每個任務讀一次整個分支；分支很大時注意力會變薄。對策是把任務切小（phase）、把重複的規則機械化。
 - **phase 迴圈和 `/secure` 還沒在真實任務上量過。** 它們是從一個真實專案的紀錄推出來的（見 §17），效果要看 `/ship` 的量測紀錄和 `/retro`。
-- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-29 全部 82 項在 Windows 11 原生環境和 Linux 上通過；現在每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部 82 項。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
+- **patch guard 是 regex。** 它只抓得到一行就看得出來的補丁：套件自己的清單（suppression、空的 catch、workaround 註解），以及專案架構規則宣告的 pattern。沒有規則描述的 special case、flag 參數、幾乎照抄的函式沒有這種標記，只能靠 fit check（§19）和 review。
+- **小 phase 不會經過 code review。** 改動低於 `review.minLines`、也沒碰到高風險路徑的 phase，不經 code review 就直接 commit；`/ship` 只審還沒 commit 的改動，所以一個由很多小 phase 組成的任務，可能完全沒經過新 context 的 review；`/phase` 和 `/ship` 的架構比對，是寫程式的同一個 session 在審自己。regex 抓不到的語意補丁，正是要靠這種 review 才抓得到。把門檻改成「上次 review 之後累計的行數」、而不是每個 phase 各算，可以補上這個缺口；目前還沒做。
+- **驗證範圍。** selftest 建置時在 Linux 通過（當時 67 項），2026-09-29 全部 82 項在 Windows 11 原生環境和 Linux 上通過，2026-10-02 加入 patch guard 後的 89 項在 Windows 11 原生環境通過；每次 push 由 CI 在 Ubuntu 與 Windows × Node 18/22 跑全部項目。另外在一個真實的 TypeScript 專案（eslint、tsc、vitest、Prettier）和一個 Angular 22 專案（§15）跑過完整流程。macOS 沒跑過。
 - **能省多少額度，目前沒有量化數據。** 請用 `/usage` 的 attribution 和 statusline 自己量。
 - **Claude Code 變化很快。** 套件用到的功能多在 v2.1.2xx 之後才有，安裝前先 `claude update`。
 - **Anthropic 公布的數字**（80% 的合併程式碼、每人 8 倍的合併量、200% 的產出成長）多數是自我報告，而且以行數計算。這個架構不追求這些數字，也不用程式碼行數當指標。
@@ -445,7 +448,7 @@ Solo AI Team 是 [agent-harnesses](https://github.com/yapeepee/agent-harnesses) 
 新功能有沒有照著架構走，在三個時間點檢查，越早發現，修正越便宜：
 
 1. 規劃前：`/spec` 的「架構影響」寫出每種改動照哪個標準做法、參考哪個檔案。需要新做法、新依賴或規則的例外時，先問你，這是兩個核准點之一。
-2. 實作中：`/phase` 照參考檔案寫，commit 前再對照一次參考檔案和規則。能用工具檢查的規則，由 `/architecture` 提議改成測試：.NET 用 NetArchTest 或 ArchUnitNET，TypeScript 用 eslint-plugin-boundaries 或 dependency-cruiser。只寫在文件裡的規則遲早會被違反，寫成測試的不會。
+2. 實作中：`/phase` 照參考檔案寫，commit 前再對照一次參考檔案和規則。加補丁之前，fit check（§19）決定這個改動要照擁有者的位置寫、先調整結構，還是登記成補丁。能用工具檢查的規則，由 `/architecture` 提議改成測試：.NET 用 NetArchTest 或 ArchUnitNET，TypeScript 用 eslint-plugin-boundaries 或 dependency-cruiser。只寫在文件裡的規則遲早會被違反，寫成測試的不會。
 3. 出貨前：`/ship` 比對整個分支和 `architecture.md`；新出現、之後還會重複的改動種類，提議成新的標準做法。
 
 另一篇 2026 年的研究（兩個 agent 在真實 repo 上的消融實驗）發現，換 context 策略沒有明顯改變正確率，失敗多半出在實作本身：功能設計、選哪個做法、細節怎麼接。所以這裡靠明確的參考檔案、機械檢查和 review，而不是把更多說明塞進 context。
@@ -466,6 +469,53 @@ Claude 只能提議修改驗收條件，不能自己改；SessionStart 會把 Ch
 
 這一節的機制來自 Claude Code 的文件和上面的外部研究。selftest 只涵蓋 engine 的部分：Change log 的注入、安裝程式建立並匯入這兩份文件，以及舊版 `CLAUDE.local.md` 的升級。它們能不能讓新功能更一致、讓計畫少重做，要看 `/ship` 的量測紀錄、code review 的發現數和 `/retro`。
 
+## 19. 補丁與例外：fit check（2026-10）
+
+在大型專案和一連串接續的 session 裡，改動常常以補丁的形式進來：為某個客戶加的 special case、一個 flag 參數、`as any`、吞掉錯誤的 catch。每一個都很小，也都通過所有檢查，累積起來卻讓下一次改動更難做。這一節說明套件為什麼讓它們通過，以及取而代之的機制。
+
+### 19.1 補丁為什麼會累積
+
+套件獎勵的是檢查變綠，而補丁正是讓檢查變綠最便宜的方法。所以補丁通過了 Stop hook、test guard 和 review gate（改動不到 300 行、也沒碰到高風險路徑的 phase 不會被 review），ledger 也從來看不到它，因為 ledger 只從被抓到的錯誤學習。禁止 suppression 的規則只是文字，而且要等檢查已經失敗才會出現。
+
+接著有兩個迴圈互相加強。程式裡既有的補丁，在下一個 session 眼裡就是這裡的慣例，而它的指示正好要它照參考檔案寫；補丁的理由在 `/clear` 之後也不見了。另外，每個 special case 都讓同一個概念多散在一個地方，下一次改動就更放不進結構，下一個補丁看起來也更便宜。用系統思考的話說，這是「轉嫁負擔」（shifting the burden）的原型：快速解法解除了症狀，同時讓根本解（讓這個概念只有一個擁有者）一次比一次難做。代價還會延遲出現：補丁由之後的 session 付，寫補丁的 session 永遠感受不到。
+
+正確行為需要的零件，套件其實都有：跟隨架構用的標準做法和參考檔案、先做結構改動的 Tidy First，以及「規則的例外要先問我」。缺的是做這個選擇的時間點。要模型「遇到規則的例外就停下來」，前提是模型會把自己寫的 special case 歸類成例外，而從它的角度看，幾乎從來不會。
+
+### 19.2 fit check：跟隨、調整或補丁
+
+觸發條件是具體的：Claude 要加針對單一 id、type、角色或 tenant 的 special case、flag 參數、幾乎照抄既有函式的副本、suppression，或吞掉錯誤的 catch 之前。接著：
+
+1. **足跡。** 說出這次要決定的是哪個概念，找出所有已經在決定它的地方（scout 做窮舉搜尋，再由主 session 自己 grep 確認），讀 `architecture.md` 裡負責這個概念的模組。Claude 要列出跑過的搜尋和找到的位置；沒有這些就做出的選擇，不算做過 fit check。
+2. **Follow（跟隨）**：負責的模組已經有放這種改動的位置（標準做法、strategy、表格、擴充點）。
+3. **Adjust（調整）**：這個概念已經在兩個以上的地方被特別處理（Known deviations 也算），這次會是第三個：先做一個不改行為的結構調整，自成一個 phase，等你核准才做。這就是 Kent Beck 說的「先讓改動變容易，再做那個容易的改動」；rule of three 讓它不會在第一個例外就觸發。
+4. **Patch（補丁）**：其他情況，或是現在改不動的程式（hotfix、第三方程式、其他團隊的模組）：補丁保留下來，並在 `architecture.md` 的 Known deviations 登記一行，每個 session 都會載入：path · 繞過什麼 · 為什麼 · 何時移除。違反規則（A…）的補丁仍然要你核准。
+
+在大型專案裡，這裡需要的「全局」是這個概念的足跡，不是整個 codebase：補丁幾乎都是關於單一概念的決定，就算整個 codebase 放不進一個 context，這個概念的足跡也放得下。而且足跡每次做決定時都從程式碼重新取得，不靠記憶延續，因為 session 對程式的理解每經過一次 compact 和 `/clear` 就變少一些，搜尋讀到的永遠是現在的程式。
+
+同一個檢查也用在任務的其他時間點。`/spec` 規劃時就檢查足跡，概念散在多處的話，結構調整的 phase 會排在任何程式之前；`/bugfix` 發現同一種 bug 出現在好幾個地方時也用它，因為這代表這個概念沒有單一的擁有者；`/ship` 列出整個分支新增的補丁；`/architecture` 在 Shape 寫出每個核心決定由哪個模組負責，機械檢查也從這些擁有權規則開始。
+
+### 19.3 工具負責的部分
+
+最直覺的修法是調低 review 門檻，但用 Donella Meadows 的話說，那只是調整參數，是最弱的一種槓桿。fit check 改的是規則（每個補丁之前都有一個決策點），patch guard 和 Known deviations 改的是資訊流（下一次決定和下一個 session 看得到什麼），Done 的定義改的是目標：任務要等它保留的每個補丁都登記了才算完成。
+
+- **patch guard** 確保決定一定會發生。一行算不算補丁要看架構，所以它找的東西分成兩層。套件自己的清單涵蓋讓檢查閉嘴的寫法（`@ts-ignore`、`as any`、`!`、`eslint-disable`、`#pragma warning disable`、`# type: ignore`）、空的 catch，以及作者自己標成 workaround 的地方。它們違反的是套件自己的架構：由工具判定做對了沒，所以在每個專案都算，只有專案刻意允許的地方例外：`patchGuard.allow`，預設是自動產生的程式碼，也可以是包無型別第三方 API 的 adapter。其他寫法只有相對於特定架構才算補丁：有 `TenantPolicy` 負責這個決定時，依 tenant id 分支就是補丁，只有一個客戶的產品則是設計；錯誤必須往上丟時，回傳 null 的 catch 是補丁，在 `TryGet` 裡則是設計。所以這一層來自專案自己的規則：`/architecture` 把每一條「一行程式就能違反」的規則變成 `.solo/config.json` 裡的一條 `patchGuard.patterns`，擁有者的路徑設成允許；ledger 升級這類錯誤時，`/learn` 也會加一條。發現會帶出它違反的規則，fit check 就從那條規則開始。guard 只掃這一輪改動的行；新的發現擋一次並要求 fit check，之後 PASS 訊息會一直列出這個檔案。`/ship` 用它掃整個分支。
+- **`test-guard --structural`** 證明結構調整的 phase 沒有改行為。Martin Fowler 對 refactoring 的定義是「不改變外部可見行為」的內部結構改動，而測試就是這個行為的規格，所以原本的每個斷言都必須逐字保留。所有改到的測試檔合在一起比對，所以把測試搬到別的檔案沒有問題。
+- **把擁有權寫成架構測試**，讓放錯地方的程式直接讓檢查失敗：`architecture.md` 寫明某個決定由哪個模組負責之後，NetArchTest、eslint-plugin-boundaries、dependency-cruiser，或 `.solo/checks/` 裡的私人腳本，就能讓在別的地方做這個決定的改動檢查失敗。
+- **Known deviations** 把每個決定帶進之後的 session：它打斷了先例迴圈，也是 rule of three 計數的來源。`ship.md` 記錄每個任務新增和移除了幾個，`/retro` 看這個數字是不是只增不減。
+
+工具判斷不了的，是新結構本身好不好。這件事留在 Adjust 的核准點，由你決定。
+
+### 19.4 取捨
+
+- **過度修正。** 規則若變成一律重構，就會出現為單一例外做的抽象、變大的 diff 和範圍膨脹。門檻（第三個例外）和 Patch 這個選項就是在防這件事；而且 Adjust 不等於加抽象，很多時候是把邏輯搬回擁有者、把散落的條件判斷收成一張表，或刪掉一層。
+- **成本。** fit check 這段文字每個 session 都會載入（約 300 tokens）；每次 fit check 多一次搜尋和幾個檔案的閱讀；Adjust 多一個 phase 和一個核准點。
+- **regex 的極限。** patch guard 只看得到有語法標記的補丁（見 §13）。
+- **lint 規則。** 有權改 lint 設定的專案，`@typescript-eslint/no-explicit-any`、`ban-ts-comment`、`no-empty`、C# 把 nullable 警告當錯誤、ruff 的 `BLE001` 都比 regex 準。不過它們掃整個 codebase，而 baseline 以錯誤訊息文字當 key：同一個檔案已經有一個 `any` 時，新加的 `any` 會被當成舊錯誤（§13）。所以舊專案和共用 repo 仍然需要只看改動行的 guard。
+
+### 19.5 還沒驗證的部分
+
+selftest 涵蓋 engine 的部分：patch guard 只看改動的行、擋一次的流程和看整個分支的 CLI，架構規則的 pattern 在擁有者以外會擋、在擁有者裡不擋，以及不擋的地方（自動產生的程式碼、`patchGuard.allow`）；`test-guard --structural`；phase 格式裡的 `Type:` 行；以及安裝程式把 fit check 提供給舊版 `CLAUDE.local.md`。fit check 能不能讓跨 session 的程式更一致，還沒有量過；要看每個任務新增和移除的 deviations，以及 `/retro` 的重工數字。
+
 ## 參考來源
 
 - [How AI Is Transforming Work at Anthropic](https://www.anthropic.com/research/how-ai-is-transforming-work-at-anthropic)
@@ -484,4 +534,5 @@ Claude 只能提議修改驗收條件，不能自己改；SessionStart 會把 Ch
 - §16：[Best practices for Claude Code](https://code.claude.com/docs/en/best-practices)、[Code intelligence plugins](https://code.claude.com/docs/en/plugins/code-intelligence)、[Kent Beck: Augmented Coding](https://newsletter.kentbeck.com/p/augmented-coding-beyond-the-vibes)、[HumanLayer: Advanced Context Engineering](https://www.humanlayer.dev/blog/advanced-context-engineering)、[Beads Best Practices](https://steve-yegge.medium.com/beads-best-practices-2db636b9760c)、[DORA 2025](https://dora.dev/dora-report-2025/)、[Mitchell Hashimoto: My AI Adoption Journey](https://mitchellh.com/writing/my-ai-adoption-journey)、[OpenAI: Harness engineering](https://openai.com/index/harness-engineering/)、[Böckeler: Understanding Spec-Driven Development](https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html)、[Huntley: Ralph](https://ghuntley.com/ralph/)、[obra/superpowers](https://github.com/obra/superpowers)、[METR 2026 update](https://metr.org/blog/2026-02-24-uplift-update/)
 - §6、§17：[Models overview](https://platform.claude.com/docs/en/models/overview)、[Pricing](https://platform.claude.com/docs/en/about-claude/pricing)、[claude-code #72940（Explore 沿用主模型）](https://github.com/anthropics/claude-code/issues/72940)、[Spending your effort](https://claude.dev/blog/spending-your-effort/)
 - §18：[Create custom subagents](https://code.claude.com/docs/en/sub-agents)、[How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)、[Towards a science of scaling agent systems（Google Research）](https://research.google/blog/towards-a-science-of-scaling-agent-systems-when-and-why-agent-systems-work/)、[Don't Build Multi-Agents（Cognition）](https://cognition.com/blog/dont-build-multi-agents)、[Cognition 2026-04 的後續](https://cognition.com/blog/multi-agents-working)、[Evaluating AGENTS.md（arXiv 2602.11988）](https://arxiv.org/abs/2602.11988)、[Do Context Files Help Coding Agents?（arXiv 2607.27250）](https://arxiv.org/abs/2607.27250)、[matklad: ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html)、[5 architecture tests for .NET（Milan Jovanović）](https://milanjovanovic.tech/blog/5-architecture-tests-you-should-add-to-your-dotnet-projects)、[eslint-plugin-boundaries](https://www.jsboundaries.dev/docs/overview/)、[BMAD-METHOD issue #446](https://github.com/bmad-code-org/BMAD-METHOD/issues/446)
+- §19：[Definition of refactoring（Martin Fowler）](https://martinfowler.com/bliki/DefinitionOfRefactoring.html)、[Rule of three](https://en.wikipedia.org/wiki/Rule_of_three_%28computer_programming%29)、[Leverage points（Donella Meadows）](https://donellameadows.org/archives/leverage-points-places-to-intervene-in-a-system/)、[System archetypes：shifting the burden](https://en.wikipedia.org/wiki/System_archetype)
 - Claude Code 官方文件：[hooks](https://code.claude.com/docs/en/hooks)、[skills](https://code.claude.com/docs/en/skills)、[sub-agents](https://code.claude.com/docs/en/sub-agents)、[model-config](https://code.claude.com/docs/en/model-config)、[costs](https://code.claude.com/docs/en/costs)、[memory](https://code.claude.com/docs/en/memory)、[permissions](https://code.claude.com/docs/en/permissions)、[permission-modes](https://code.claude.com/docs/en/permission-modes)、[settings](https://code.claude.com/docs/en/settings)、[worktrees](https://code.claude.com/docs/en/worktrees)、[statusline](https://code.claude.com/docs/en/statusline)、[advisor](https://code.claude.com/docs/en/advisor)、[code-review](https://code.claude.com/docs/en/code-review)
