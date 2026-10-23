@@ -1,0 +1,19 @@
+{
+  "name": "zhtw-check",
+  "version": "0.1.0",
+  "description": "Flags Simplified characters and mainland wording in what Claude writes, so files and replies stay in Taiwan Traditional Chinese",
+  "userConfig": {
+    "skipPaths": {
+      "type": "string",
+      "title": "略過的路徑（正規表示式）",
+      "description": "符合的檔案不檢查，例如簡體中文的語系檔",
+      "default": "zh[-_]?(cn|hans|sg)"
+    },
+    "remindModel": {
+      "type": "boolean",
+      "title": "提醒 Claude 改用台灣用語",
+      "description": "回覆出現簡體字或中國用語時，下一輪附一段提醒給 Claude（你看不到，最多每 3 輪一次）",
+      "default": true
+    }
+  }
+}

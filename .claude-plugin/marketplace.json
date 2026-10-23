@@ -1,0 +1,10 @@
+{
+  "name": "solo-ai-team",
+  "owner": { "name": "yapeepee" },
+  "plugins": [
+    { "name": "smart-notify", "source": "./kit/mods/smart-notify" },
+    { "name": "local-guard", "source": "./kit/mods/local-guard" },
+    { "name": "session-changes", "source": "./kit/mods/session-changes" },
+    { "name": "zhtw-check", "source": "./kit/mods/zhtw-check" }
+  ]
+}

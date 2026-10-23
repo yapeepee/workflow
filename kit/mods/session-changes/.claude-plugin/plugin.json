@@ -1,0 +1,14 @@
+{
+  "name": "session-changes",
+  "version": "0.1.0",
+  "description": "A side pane listing what is uncommitted, what this session touched (+/- per file), and the diff of the file you pick",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "boolean",
+      "title": "第一次改檔時自動打開側欄",
+      "description": "這個 session 第一次用工具改檔案時打開側欄；終端機夠寬時才會顯示。關掉的話用 /changes 打開",
+      "default": true
+    }
+  }
+}

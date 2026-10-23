@@ -1,0 +1,19 @@
+{
+  "name": "local-guard",
+  "version": "0.1.0",
+  "description": "Keeps AI notes, docs and secrets out of git at write time: one repo per session, no new docs or secrets where git can see them, and /local-check to audit it all",
+  "userConfig": {
+    "docExtensions": {
+      "type": "string",
+      "title": "文件副檔名",
+      "description": "在 git 看得到的位置「新增」這些副檔名的檔案時擋下（逗號分隔）；被排除的位置不受限制",
+      "default": "md,markdown,mdx,rst,adoc"
+    },
+    "checkOnStart": {
+      "type": "boolean",
+      "title": "session 開始時檢查",
+      "description": "session 開始時稽核目前的 repo，只有發現問題才提醒",
+      "default": true
+    }
+  }
+}

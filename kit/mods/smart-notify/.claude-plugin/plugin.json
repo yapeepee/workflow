@@ -1,0 +1,25 @@
+{
+  "name": "smart-notify",
+  "version": "0.1.0",
+  "description": "Native notifications only when they matter: a long turn finished, or Claude stopped to wait for you",
+  "userConfig": {
+    "minSeconds": {
+      "type": "number",
+      "title": "通知門檻（秒）",
+      "description": "回合跑超過這個秒數才通知；短回合你本來就在看",
+      "default": 45
+    },
+    "onWaiting": {
+      "type": "boolean",
+      "title": "等你核准或回答時通知",
+      "description": "回合已經超過門檻、又停下來等你核准或回答問題時通知",
+      "default": true
+    },
+    "macFallback": {
+      "type": "boolean",
+      "title": "macOS 通知中心備援",
+      "description": "終端機本身不支援通知（只有鈴聲或沒有通道）時，改用 osascript 發到通知中心",
+      "default": true
+    }
+  }
+}
